@@ -14,7 +14,7 @@ import (
 	"github.com/bogdanfinn/tls-client/profiles"
 )
 
-const maxReadResponseBytes = 8 << 20
+const maxReadResponseBytes = 10 << 20
 
 // Header 是 fhttp.Header 的别名，让 recaptcha/vertex 能构造请求头而不直接 import fhttp。
 type Header = http.Header

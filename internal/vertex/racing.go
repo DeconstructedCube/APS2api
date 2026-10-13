@@ -47,7 +47,7 @@ func StreamParallel(ctx context.Context, cfg config.ConfigProvider,
 			}
 		}
 	contentReady:
-		rest := make(chan StreamChunk, 64)
+		rest := make(chan StreamChunk, len(buffered)+64)
 		for _, chunk := range buffered {
 			rest <- chunk
 		}

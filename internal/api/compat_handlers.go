@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -110,7 +109,6 @@ func completionFromChat(chat map[string]any, prompt string, echo bool) map[strin
 	if u, ok := chat["usage"]; ok {
 		out["usage"] = u
 	}
-	_ = prompt
 	return out
 }
 
@@ -181,15 +179,6 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if in.Store != nil && !*in.Store && (in.PreviousResponseID != "" || in.Conversation != nil) {
 		oaiError(w, 400, "store=false cannot be used with response history", "invalid_parameter")
 		return
-	}
-	for _, pair := range []struct {
-		name  string
-		value any
-	}{} {
-		if pair.value != nil && pair.value != false && pair.value != "" {
-			oaiError(w, 400, "unsupported parameter: "+pair.name, "unsupported_parameter")
-			return
-		}
 	}
 	model := in.Model
 	if strings.TrimSpace(model) == "" {
@@ -323,8 +312,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		bgCtx, cancel := context.WithTimeout(context.Background(), time.Duration(s.mw.cfg.RequestTimeout())*time.Second)
 		s.backgroundMu.Lock()
 		s.backgroundCancels[id] = cancel
+		s.backgroundWG.Add(1)
 		s.backgroundMu.Unlock()
-		go s.runBackgroundResponse(bgCtx, cancel, rec, payload, actual)
+		go func() {
+			defer s.backgroundWG.Done()
+			s.runBackgroundResponse(bgCtx, cancel, rec, payload, actual)
+		}()
 		writeJSON(w, 200, map[string]any{"id": id, "object": "response", "created_at": now, "status": "in_progress", "model": in.Model, "output": []any{}})
 		return
 	}
@@ -401,6 +394,9 @@ func (s *Server) runBackgroundResponse(ctx context.Context, cancel context.Cance
 	defer cancel()
 	defer func() { s.backgroundMu.Lock(); delete(s.backgroundCancels, rec.ID); s.backgroundMu.Unlock() }()
 	resp, err := s.chat.vc.CompleteChat(ctx, model, payload)
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		b, _ := json.Marshal(map[string]any{"message": err.Error()})
 		rec.Status = "failed"
@@ -412,17 +408,20 @@ func (s *Server) runBackgroundResponse(ctx context.Context, cancel context.Cance
 		rec.Usage, _ = json.Marshal(usage)
 	}
 	rec.CompletedAt = time.Now().Unix()
-	updated, _ := s.responseStore.UpdateTerminalCAS(context.Background(), rec)
+	if ctx.Err() != nil {
+		return
+	}
+	updated, _ := s.responseStore.UpdateTerminalCAS(ctx, rec)
 	if !updated {
 		return
 	}
 	if rec.ConversationID != "" && rec.Status == "completed" {
 		ob, _ := json.Marshal(map[string]any{"type": "message", "role": "assistant", "content": json.RawMessage(rec.Output)})
-		_ = s.responseStore.AddConversationItems(context.Background(), rec.ConversationID, []responseproto.InputItem{{ID: "item_" + reqID24(), Data: ob, CreatedAt: rec.CompletedAt}})
+		_ = s.responseStore.AddConversationItems(ctx, rec.ConversationID, []responseproto.InputItem{{ID: "item_" + reqID24(), Data: ob, CreatedAt: rec.CompletedAt}})
 	}
 	eventData, _ := json.Marshal(map[string]any{"id": rec.ID, "status": rec.Status})
-	seq, _ := s.responseStore.AllocateEventSequence(context.Background(), "response", rec.ID)
-	_ = s.responseStore.AppendEvent(context.Background(), responseproto.Event{ResourceKind: "response", ResourceID: rec.ID, Sequence: seq, EventID: rec.ID + "_terminal", EventType: "response." + rec.Status, Data: eventData, CreatedAt: rec.CompletedAt})
+	seq, _ := s.responseStore.AllocateEventSequence(ctx, "response", rec.ID)
+	_ = s.responseStore.AppendEvent(ctx, responseproto.Event{ResourceKind: "response", ResourceID: rec.ID, Sequence: seq, EventID: rec.ID + "_terminal", EventType: "response." + rec.Status, Data: eventData, CreatedAt: rec.CompletedAt})
 }
 
 func (s *Server) persistResponse(r *http.Request, in responseproto.CreateRequest, id string, input []any, out map[string]any) {
@@ -443,7 +442,6 @@ func (s *Server) persistResponse(r *http.Request, in responseproto.CreateRequest
 	}
 	seq, _ := s.responseStore.AllocateEventSequence(r.Context(), "response", id)
 	_ = s.responseStore.AppendEvent(r.Context(), responseproto.Event{ResourceKind: "response", ResourceID: id, Sequence: seq, EventID: id + "_completed", EventType: "response.completed", Data: b, CreatedAt: now})
-	_ = b
 }
 
 func stringValueAny(v any) string                   { s, _ := v.(string); return s }
@@ -539,7 +537,7 @@ func (s *Server) handleResponseResource(w http.ResponseWriter, r *http.Request) 
 		}
 		writeResponseRecord(w, rec)
 	case http.MethodDelete:
-		if err := s.responseStore.Delete(r.Context(), id); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := s.responseStore.Delete(r.Context(), id); err != nil {
 			oaiError(w, 404, "response not found", "not_found")
 			return
 		}
@@ -671,6 +669,9 @@ func (s *Server) handleConversationResource(w http.ResponseWriter, r *http.Reque
 		if limit <= 0 {
 			limit = 100
 		}
+		if limit > 999 {
+			limit = 999
+		}
 		items, err := s.responseStore.ListConversationItems(r.Context(), id, after, limit+1)
 		if err != nil {
 			oaiError(w, 404, "conversation not found", "not_found")
@@ -756,7 +757,7 @@ func writeResponsesStreamFromVertex(w http.ResponseWriter, r *http.Request, s *S
 				pm, _ := p.(map[string]any)
 				if t, _ := pm["text"].(string); t != "" && !isTruthyMap(pm["thought"]) {
 					text.WriteString(t)
-					if !emit("response.output_text.delta", map[string]any{"type": "response.output_text.delta", "delta": t, "item_id": id}) {
+					if !emit("response.output_text.delta", map[string]any{"type": "response.output_text.delta", "delta": t, "item_id": itemID}) {
 						return false
 					}
 				}
@@ -883,87 +884,6 @@ func (s *Server) handleResponsesInputTokens(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"object": "response.input_tokens", "input_tokens": count})
 }
 
-func responsesInputMessages(v any) []any {
-	switch x := v.(type) {
-	case string:
-		return []any{map[string]any{"role": "user", "content": x}}
-	case []any:
-		out := []any{}
-		for _, item := range x {
-			m, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			typ, _ := m["type"].(string)
-			if typ == "input_text" {
-				if text, ok := m["text"].(string); ok {
-					out = append(out, map[string]any{"role": "user", "content": text})
-				}
-				continue
-			}
-			if typ == "message" || typ == "" {
-				role, _ := m["role"].(string)
-				if role == "" {
-					role = "user"
-				}
-				content := m["content"]
-				if content == nil {
-					content = m["text"]
-				}
-				out = append(out, map[string]any{"role": role, "content": content})
-			}
-		}
-		return out
-	}
-	return nil
-}
-
-func responseFromChat(chat map[string]any, model string) map[string]any {
-	text := ""
-	var usage any
-	if cs, ok := chat["choices"].([]any); ok && len(cs) > 0 {
-		c, _ := cs[0].(map[string]any)
-		m, _ := c["message"].(map[string]any)
-		text, _ = m["content"].(string)
-	}
-	usage = chat["usage"]
-	out := map[string]any{"id": "resp_" + reqID24(), "object": "response", "created_at": time.Now().Unix(), "status": "completed", "model": model, "output": []any{map[string]any{"type": "message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}}}}}
-	if usage != nil {
-		out["usage"] = usage
-	}
-	return out
-}
-
-func writeResponsesStream(w http.ResponseWriter, data []byte, model string) {
-	sw := newSSEWriter(w, "text/event-stream")
-	id := "resp_" + reqID24()
-	_ = sw.write("event: response.created\n" + sseEvent(map[string]any{"type": "response.created", "response": map[string]any{"id": id, "object": "response", "model": model, "status": "in_progress"}}))
-	_ = sw.write("event: response.in_progress\n" + sseEvent(map[string]any{"type": "response.in_progress", "response": map[string]any{"id": id, "object": "response", "model": model, "status": "in_progress"}}))
-	for _, line := range strings.Split(string(data), "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		p := strings.TrimPrefix(line, "data: ")
-		if p == "[DONE]" {
-			continue
-		}
-		var c map[string]any
-		if json.Unmarshal([]byte(p), &c) != nil {
-			continue
-		}
-		cs, _ := c["choices"].([]any)
-		if len(cs) == 0 {
-			continue
-		}
-		ch, _ := cs[0].(map[string]any)
-		d, _ := ch["delta"].(map[string]any)
-		txt, _ := d["content"].(string)
-		if txt != "" {
-			_ = sw.write("event: response.output_text.delta\n" + sseEvent(map[string]any{"type": "response.output_text.delta", "delta": txt, "item_id": id}))
-		}
-	}
-	_ = sw.write("event: response.completed\n" + sseEvent(map[string]any{"type": "response.completed", "response": responseFromChat(map[string]any{"model": model, "choices": []any{map[string]any{"message": map[string]any{"content": ""}}}}, model)}))
-}
 
 type responseRecorder struct {
 	header http.Header

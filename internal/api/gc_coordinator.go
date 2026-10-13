@@ -10,7 +10,7 @@ import (
 // postTestGC coalesces cleanup requests from concurrently finishing test
 // batches. The request is made only after all workers in that batch have
 // exited, so GC is a final cleanup step rather than a per-node throttle.
-var postTestGC struct {
+var postTestGC struct { //nolint:gochecknoglobals // GC 协调器内部状态
 	sync.Mutex
 	pending bool
 	lastRun time.Time

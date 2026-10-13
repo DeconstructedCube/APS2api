@@ -4,7 +4,7 @@ import "context"
 
 const sharedTestSessionLimit = 20
 
-var testSessionSlots = make(chan struct{}, sharedTestSessionLimit)
+var testSessionSlots = make(chan struct{}, sharedTestSessionLimit) //nolint:gochecknoglobals
 
 func acquireTestSession(ctx context.Context) bool {
 	select {

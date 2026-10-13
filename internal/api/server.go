@@ -29,10 +29,11 @@ type Server struct {
 	subscriptions     *subscriptions.Service
 	mw                *middleware
 	responseStore     *responseproto.ResponseStore
-	backgroundMu      sync.Mutex
-	backgroundCancels map[string]context.CancelFunc
+	backgroundMu               sync.Mutex
+	backgroundCancels          map[string]context.CancelFunc
+	backgroundWG               sync.WaitGroup
 	responseMaintenanceCancel context.CancelFunc
-	responseMaintenanceWG sync.WaitGroup
+	responseMaintenanceWG     sync.WaitGroup
 }
 
 func NewServer(vc *vertex.VertexAIClient, keys *APIKeyManager, cfg config.ConfigProvider) *Server {
@@ -74,7 +75,17 @@ func NewServer(vc *vertex.VertexAIClient, keys *APIKeyManager, cfg config.Config
 }
 
 func (s *Server) Close() {
-	if s.responseMaintenanceCancel != nil { s.responseMaintenanceCancel(); s.responseMaintenanceWG.Wait() }
+	s.backgroundMu.Lock()
+	for _, cancel := range s.backgroundCancels {
+		cancel()
+	}
+	s.backgroundMu.Unlock()
+	s.backgroundWG.Wait()
+
+	if s.responseMaintenanceCancel != nil {
+		s.responseMaintenanceCancel()
+		s.responseMaintenanceWG.Wait()
+	}
 	if s.subscriptions != nil {
 		s.subscriptions.Stop()
 	}

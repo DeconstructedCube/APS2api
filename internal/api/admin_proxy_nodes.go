@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,6 +20,8 @@ const (
 	entryProxyProbePollInterval = time.Second
 	entryProxyTestConcurrency   = 20
 )
+var errTestSessionUnavailable = errors.New("test session unavailable")
+
 
 type entryProxyTestProgress struct {
 	Running     bool   `json:"running"`
@@ -462,7 +465,7 @@ func (adm *AdminHandler) runProxyBatchTest(
 func probeEntryProxyCandidate(ctx context.Context, netClient *transport.NetworkClient, rawURI string, timeoutSeconds int) (float64, error) {
 	start := time.Now()
 	if !acquireTestSession(ctx) {
-		return float64(time.Since(start).Milliseconds()), ctx.Err()
+		return float64(time.Since(start).Milliseconds()), errTestSessionUnavailable
 	}
 	defer releaseTestSession()
 	reqID := transport.RequestIDFromContext(ctx)
@@ -565,6 +568,10 @@ func runEntryProxyProbeRound(
 				probeCtx, cancel := context.WithTimeout(ctx, entryProxyProbeTimeout)
 				elapsed, err := probe(probeCtx, rawURI)
 				cancel()
+				if errors.Is(err, errTestSessionUnavailable) {
+					log.Printf("[EntryProxy] 候选 %s 等待测试会话槽位超时，跳过状态更新", redactProxyURI(rawURI))
+					continue
+				}
 				errText := ""
 				if err != nil {
 					errText = err.Error()

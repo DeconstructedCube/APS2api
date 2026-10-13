@@ -85,6 +85,9 @@ func clampInt(v any, min, max int) any {
 	var n int
 	switch x := v.(type) {
 	case float64:
+		if x != float64(int64(x)) {
+			return v
+		}
 		n = int(x)
 	case int:
 		n = x

@@ -31,10 +31,20 @@ func NewTokenPool(net *transport.NetworkClient, cfg config.ConfigProvider) *Toke
 	if cfg.RecaptchaTryEntryOrDirect() {
 		p.primary = func() []string {
 			out := []string{}
-			for _, e := range config.SelectEntryProxySequence(1, cfg) {
-				out = append(out, e)
+			seen := make(map[string]struct{})
+			add := func(route string) {
+				if _, ok := seen[route]; !ok {
+					seen[route] = struct{}{}
+					out = append(out, route)
+				}
 			}
-			out = append(out, "")
+			for _, e := range config.SelectEntryProxySequence(1, cfg) {
+				add(e)
+			}
+			if proxyURL := cfg.ProxyURL(); proxyURL != "" {
+				add(proxyURL)
+			}
+			add("")
 			return out
 		}
 		p.fallback = func() []string {

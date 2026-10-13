@@ -161,7 +161,7 @@ func (adm *AdminHandler) adminTestAll(w http.ResponseWriter, _ *http.Request) {
 					duration := float64(time.Since(start).Milliseconds())
 					testErr, abort := resolveBatchNodeTest(ctx, nodeCtx, testErr)
 					nodeCancel()
-					if abort || nodes.CheckTestControl() {
+					if abort || nodes.CheckTestControlContext(ctx) {
 						return
 					}
 					if testErr != nil {

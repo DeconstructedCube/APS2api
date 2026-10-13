@@ -143,7 +143,7 @@ func getOrStartProxyDialerWithBuilderContext(ctx context.Context, uri string, re
 	info := proxyMap[cacheKey]
 	var evicted []*proxyInfo
 	if len(proxyMap) > maxProxyCacheEntries {
-		evicted = evictInactiveLRULocked(len(proxyMap) - maxProxyCacheEntries)
+		evicted = evictInactiveLRULocked(len(proxyMap)-maxProxyCacheEntries, cacheKey)
 	}
 	delete(proxyInitMap, cacheKey)
 	close(pending.done)
@@ -155,10 +155,14 @@ func getOrStartProxyDialerWithBuilderContext(ctx context.Context, uri string, re
 }
 
 // evictInactiveLRULocked removes the least recently used inactive entries.
-// proxyMutex must be held by the caller.
-func evictInactiveLRULocked(limit int) []*proxyInfo {
+// proxyMutex must be held by the caller. keepKeys are never evicted.
+func evictInactiveLRULocked(limit int, keepKeys ...string) []*proxyInfo {
 	if limit <= 0 {
 		return nil
+	}
+	keep := ""
+	if len(keepKeys) > 0 {
+		keep = keepKeys[0]
 	}
 	type candidate struct {
 		key  string
@@ -166,7 +170,7 @@ func evictInactiveLRULocked(limit int) []*proxyInfo {
 	}
 	candidates := make([]candidate, 0, len(proxyMap))
 	for key, info := range proxyMap {
-		if info.closed || info.activeRefs > 0 {
+		if (keep != "" && key == keep) || info.closed || info.activeRefs > 0 {
 			continue
 		}
 		candidates = append(candidates, candidate{key: key, info: info})

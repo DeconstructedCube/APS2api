@@ -543,6 +543,7 @@ func runSlidingWindow[T any](ctx context.Context, cfg config.ConfigProvider, run
 	launched := 0
 	var failures []error
 	var collected []raceResult[T]
+	timeout := cfg.RaceTimeout()
 	launch := func(uri string) {
 		candCtx, cancel := context.WithCancel(ctx)
 		mu.Lock()
@@ -551,16 +552,28 @@ func runSlidingWindow[T any](ctx context.Context, cfg config.ConfigProvider, run
 		launched++
 		go func() {
 			defer func() {
-				if recover() != nil {
+				if r := recover(); r != nil {
 					results <- result{uri: uri, err: NewInternalError("candidate panic")}
 				}
 			}()
-			if timeout := cfg.RaceTimeout(); timeout > 0 {
-				var stop context.CancelFunc
-				candCtx, stop = context.WithTimeout(candCtx, time.Duration(timeout)*time.Second)
-				defer stop()
+
+			var timer *time.Timer
+			if timeout > 0 {
+				timer = time.AfterFunc(time.Duration(timeout)*time.Second, func() {
+					cancel()
+				})
 			}
+
 			v, err := run(candCtx, uri)
+
+			if timer != nil {
+				timer.Stop()
+			}
+
+			if err != nil && candCtx.Err() != nil && ctx.Err() == nil {
+				err = NewUnavailableError(fmt.Sprintf("节点 %s 竞速超时（%d 秒），已淘汰", nodes.GetNodeName(uri), timeout))
+			}
+
 			results <- result{uri: uri, val: v, err: err}
 		}()
 	}
@@ -601,6 +614,7 @@ func runSlidingWindow[T any](ctx context.Context, cfg config.ConfigProvider, run
 		}
 		return run(ctx, proxy)
 	}
+	cli.UpdateReqState(RequestIDFromContext(ctx), "⚡ 并发竞速", "\033[33m", fmt.Sprintf("并行节点: %d", len(active)))
 	for {
 		if len(active) == 0 {
 			if len(collected) > 0 {
@@ -633,31 +647,57 @@ func runSlidingWindow[T any](ctx context.Context, cfg config.ConfigProvider, run
 			return zero, ctx.Err()
 		case res := <-results:
 			mu.Lock()
-			if cancel := active[res.uri]; cancel != nil {
-				cancel()
-				delete(active, res.uri)
-			}
+			winnerCancel := active[res.uri]
+			delete(active, res.uri)
 			mu.Unlock()
 			if res.err == nil {
 				nodes.RecordTest(res.uri, true, 50, "")
 				stickyPool.Add(res.uri)
 				if rc.isWinningResult == nil || rc.isWinningResult(res.val) {
+					name := nodes.GetNodeName(res.uri)
+					log.Printf("[Racing] 竞速胜出节点: %s", name)
+					cli.UpdateReqWinner(RequestIDFromContext(ctx), name)
+					cli.UpdateReqState(RequestIDFromContext(ctx), "🟢 数据传输", "\033[32m", "已建立连接")
+
 					mu.Lock()
 					for _, cancel := range active {
 						cancel()
 					}
+					active = nil
 					mu.Unlock()
+
+					if !rc.noCancelOnSuccess && winnerCancel != nil {
+						winnerCancel()
+					}
 					return res.val, nil
 				}
+				if winnerCancel != nil {
+					winnerCancel()
+				}
 				collected = append(collected, raceResult[T]{uri: res.uri, val: res.val})
-			} else if !errors.Is(res.err, context.Canceled) {
-				failures = append(failures, res.err)
-				if ve := asVertexError(res.err); ve != nil && ve.Kind == "ratelimit" {
-					nodes.RecordRateLimit(res.uri, 30)
-					stickyPool.Evict(res.uri)
-				} else {
-					nodes.RecordTest(res.uri, false, 0, res.err.Error())
-					stickyPool.Evict(res.uri)
+			} else {
+				if winnerCancel != nil {
+					winnerCancel()
+				}
+				if !errors.Is(res.err, context.Canceled) {
+					failures = append(failures, res.err)
+					ve := asVertexError(res.err)
+					if ve != nil && ve.IsGlobalHardError() {
+						mu.Lock()
+						for _, cancel := range active {
+							cancel()
+						}
+						active = nil
+						mu.Unlock()
+						return zero, res.err
+					}
+					if ve != nil && ve.Kind == "ratelimit" {
+						nodes.RecordRateLimit(res.uri, 30)
+						stickyPool.Evict(res.uri)
+					} else {
+						nodes.RecordTest(res.uri, false, 0, res.err.Error())
+						stickyPool.Evict(res.uri)
+					}
 				}
 			}
 			fill()

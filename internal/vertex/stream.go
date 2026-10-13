@@ -128,6 +128,7 @@ func (c *VertexAIClient) executeStreamingWithRetries(ctx context.Context, model 
 	}()
 	var session sessionResult
 	var token tokenResult
+	ctxDone := ctx.Done()
 	for gotSession, gotToken := false, false; !gotSession || !gotToken; {
 		select {
 		case session = <-sessionCh:
@@ -145,7 +146,8 @@ func (c *VertexAIClient) executeStreamingWithRetries(ctx context.Context, model 
 					prepCancel()
 				}
 			}
-		case <-ctx.Done():
+		case <-ctxDone:
+			ctxDone = nil
 			prepCancel()
 		}
 	}
@@ -335,14 +337,6 @@ retryLoop:
 	}
 }
 
-type idleTouchingReader struct {
-	r     io.Reader
-	touch func()
-}
-
-func (ir *idleTouchingReader) Read(p []byte) (int, error) {
-	return ir.r.Read(p)
-}
 
 // executeStreamingAttempt 执行单次流式请求：发请求 → 增量扫描 JSON → 提取 chunk → 过滤 finishReason。
 //
@@ -467,7 +461,7 @@ func (c *VertexAIClient) executeStreamingAttempt(ctx context.Context, sess *tran
 
 	// 增量扫描上游流，逐个完整 JSON 对象提取 chunk。
 	completionState := newStreamCompletionState()
-	scanErr := scanStream(&idleTouchingReader{r: sr.Body, touch: touchActivity}, func(obj map[string]any) (stop bool, err error) {
+	scanErr := scanStream(sr.Body, func(obj map[string]any) (stop bool, err error) {
 		// Only a complete, successfully parsed upstream object proves the stream
 		// is alive; arbitrary TCP bytes or malformed frames cannot reset idle.
 		touchActivity()

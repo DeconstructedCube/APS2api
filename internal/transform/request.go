@@ -161,7 +161,7 @@ func ConvertChatRequest(body map[string]any, cfg config.ConfigProvider) (string,
 	}
 	if maxTokens != nil {
 		f, ok := maxTokens.(float64)
-		if !ok || f < 1 {
+		if !ok || f < 1 || f != float64(int64(f)) {
 			return "", nil, fmt.Errorf("max_tokens must be an integer >= 1")
 		}
 		if !cfg.DropMaxTokens() {

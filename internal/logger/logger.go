@@ -24,7 +24,7 @@ func NewDailyLogger(dir string) *DailyLogger {
 	_ = os.MkdirAll(dir, 0755)
 
 	latestPath := filepath.Join(dir, "logs_latest.log")
-	f, _ := os.OpenFile(latestPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	f, _ := os.OpenFile(latestPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 
 	if f != nil {
 		now := time.Now()
@@ -69,7 +69,7 @@ func (l *DailyLogger) Close() error {
 		latestData, _ := os.ReadFile(latestPath)
 
 		// Create or open the target file regardless of whether there's data
-		f, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		f, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err == nil {
 			if len(latestData) > 0 {
 				_, _ = f.Write(latestData)

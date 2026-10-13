@@ -271,23 +271,13 @@ func textParts(v any) []any {
 	case []any:
 		out := []any{}
 		for _, raw := range x {
-			m, _ := raw.(map[string]any)
-			typ := strings.ToLower(stringValue(m["type"]))
-			switch typ {
-			case "text", "input_text", "output_text":
-				out = append(out, map[string]any{"text": stringValue(m["text"])})
-			case "input_image", "image_url":
-				if part := mediaPart(m, false); part != nil {
-					out = append(out, part)
-				}
-			case "input_file":
-				if part := mediaPart(m, false); part != nil {
-					out = append(out, part)
-				}
-			case "input_audio":
-				if part := mediaPart(m, true); part != nil {
-					out = append(out, part)
-				}
+			m, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			part, err := responseContentPart(m)
+			if err == nil && part != nil {
+				out = append(out, part)
 			}
 		}
 		return out
@@ -385,52 +375,6 @@ func responseContentPart(m map[string]any) (map[string]any, error) {
 	return nil, &AdapterError{Code: "unsupported_input_item", Param: "input.content.type", Message: "input content type is not supported"}
 }
 
-// mediaPart converts Responses multimodal content blocks to Gemini parts.
-// Remote image/file references become fileData; inline audio becomes inlineData.
-func mediaPart(m map[string]any, audio bool) map[string]any {
-	if audio {
-		h := m["input_audio"]
-		if h == nil {
-			h = m
-		}
-		if hm, ok := h.(map[string]any); ok {
-			data := stringValue(hm["data"])
-			if data == "" {
-				data = stringValue(m["data"])
-			}
-			if data != "" {
-				mime := firstString(hm["mime_type"], hm["mimeType"], m["mime_type"], "audio/wav")
-				return map[string]any{"inlineData": map[string]any{"data": data, "mimeType": mime}}
-			}
-		}
-		return nil
-	}
-	uri := firstString(m["file_id"], m["file_url"], m["image_url"], m["url"])
-	if holder, ok := m["image_url"].(map[string]any); ok {
-		uri = firstString(holder["url"], holder["file_id"], uri)
-	}
-	if uri == "" {
-		return nil
-	}
-	if strings.HasPrefix(uri, "data:") {
-		if i := strings.Index(uri, ";base64,"); i > 5 {
-			return map[string]any{"inlineData": map[string]any{"mimeType": uri[5:i], "data": uri[i+8:]}}
-		}
-	}
-	mime := firstString(m["mime_type"], m["mimeType"])
-	if mime == "" {
-		mime = "application/octet-stream"
-		lower := strings.ToLower(uri)
-		if strings.Contains(lower, ".png") {
-			mime = "image/png"
-		} else if strings.Contains(lower, ".jpg") || strings.Contains(lower, ".jpeg") {
-			mime = "image/jpeg"
-		} else if strings.Contains(lower, ".pdf") {
-			mime = "application/pdf"
-		}
-	}
-	return map[string]any{"fileData": map[string]any{"fileUri": uri, "mimeType": mime}}
-}
 func stringValue(v any) string { s, _ := v.(string); return s }
 func firstString(v ...any) string {
 	for _, x := range v {

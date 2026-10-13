@@ -38,7 +38,7 @@ func (c *ChatHandler) handleChatCompletions(w http.ResponseWriter, r *http.Reque
 		body = make(map[string]any)
 	}
 	if strings.EqualFold(r.Header.Get("X-OpenAI-Strict"), "true") {
-		known := map[string]bool{"model":true,"messages":true,"stream":true,"stream_options":true,"n":true,"temperature":true,"top_p":true,"max_tokens":true,"max_completion_tokens":true,"stop":true,"tools":true,"tool_choice":true,"parallel_tool_calls":true,"response_format":true,"reasoning_effort":true,"thinking":true,"media_resolution":true,"safety_settings":true,"safetySettings":true,"user":true,"presence_penalty":true,"frequency_penalty":true,"seed":true,"logprobs":true,"top_logprobs":true,"extra_body":true}
+		known := map[string]bool{"model":true,"messages":true,"stream":true,"stream_options":true,"n":true,"temperature":true,"top_p":true,"top_k":true,"max_tokens":true,"max_completion_tokens":true,"stop":true,"tools":true,"functions":true,"tool_choice":true,"parallel_tool_calls":true,"response_format":true,"reasoning_effort":true,"thinking":true,"media_resolution":true,"safety_settings":true,"safetySettings":true,"user":true,"presence_penalty":true,"frequency_penalty":true,"seed":true,"logprobs":true,"top_logprobs":true,"extra_body":true}
 		for k := range body { if !known[k] { oaiError(w, 400, "unknown parameter: "+k, "unsupported_parameter"); return } }
 	}
 
@@ -148,6 +148,7 @@ func (c *ChatHandler) streamChatCompletions(ctx context.Context, w http.Response
 	if requestID == "" {
 		requestID = reqID24()
 	}
+	defer transform.ReleaseStreamCreated(requestID)
 
 	sw := newSSEWriter(w, "text/event-stream")
 

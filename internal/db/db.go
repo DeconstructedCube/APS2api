@@ -71,6 +71,11 @@ func InitDB(dbPath string) error {
 
 	return nil
 }
+// CreateTables initializes all schema tables and performs incremental migrations.
+func CreateTables(db *sql.DB) error {
+	return createTables(db)
+}
+
 
 func createTables(db *sql.DB) error {
 	schema := `

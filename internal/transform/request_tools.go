@@ -78,6 +78,8 @@ func normalizeBuiltinTool(tool any) map[string]any {
 		out := map[string]any{"googleSearch": map[string]any{}}
 		if cfg, ok := m["googleSearch"].(map[string]any); ok {
 			out["googleSearch"] = cfg
+		} else if cfg, ok := m["google_search"].(map[string]any); ok {
+			out["googleSearch"] = cfg
 		}
 		return out
 	}

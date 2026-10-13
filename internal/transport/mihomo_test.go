@@ -202,6 +202,25 @@ func TestEvictInactiveLRUOnlyRemovesOldestIdleEntries(t *testing.T) {
 		t.Fatalf("unexpected LRU eviction: evicted=%v oldest=%v active=%v", len(evicted), oldestStillThere, activeStillThere)
 	}
 }
+func TestEvictInactiveLRUExcludesKeepKey(t *testing.T) {
+	StopAllProxies()
+	t.Cleanup(StopAllProxies)
+	proxyMutex.Lock()
+	base := time.Now()
+	proxyMap["k0"] = &proxyInfo{proxyURI: "u0", lastUsedAt: base}
+	proxyMap["k1"] = &proxyInfo{proxyURI: "u1", lastUsedAt: base.Add(time.Second)}
+	evicted := evictInactiveLRULocked(1, "k0")
+	_, k0There := proxyMap["k0"]
+	_, k1There := proxyMap["k1"]
+	proxyMutex.Unlock()
+	if len(evicted) != 1 || evicted[0].proxyURI != "u1" {
+		t.Fatalf("expected k1 to be evicted instead of keepKey k0: %v", evicted)
+	}
+	if !k0There || k1There {
+		t.Fatalf("keepKey k0 should remain and k1 should be evicted: k0=%v, k1=%v", k0There, k1There)
+	}
+}
+
 
 func TestTrackedConnReleasesActiveReferenceOnce(t *testing.T) {
 	left, right := net.Pipe()

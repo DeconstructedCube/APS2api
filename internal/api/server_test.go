@@ -1,12 +1,18 @@
 package api
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/bsfdsagfadg/vertex/internal/config"
+	"github.com/bsfdsagfadg/vertex/internal/db"
 	responseproto "github.com/bsfdsagfadg/vertex/internal/responses"
+	_ "github.com/glebarez/go-sqlite"
 )
 
 func TestWriteResponseRecordPreservesArrayOutput(t *testing.T) {
@@ -70,5 +76,36 @@ func TestStatusWriterFlush(t *testing.T) {
 	sw.Flush()
 	if !rec.Flushed {
 		t.Fatal("Flush 应透传到底层 ResponseRecorder")
+	}
+}
+func TestHandleResponseResourceDeleteNonExistent(t *testing.T) {
+	sdb, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sdb.Close()
+	sdb.SetMaxOpenConns(1)
+	if err := db.CreateTables(sdb); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{responseStore: responseproto.NewResponseStore(sdb)}
+	req := httptest.NewRequest(http.MethodDelete, "/v1/responses/resp_nonexistent", nil)
+	rec := httptest.NewRecorder()
+	srv.handleResponseResource(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("DELETE nonexistent response returned code %d, want 404", rec.Code)
+	}
+}
+
+func TestChatHandlerStrictModeAllowsTopKAndFunctions(t *testing.T) {
+	chat := &ChatHandler{handler: handler{cfg: config.StaticProvider(config.DefaultConfig())}}
+	reqBody := []byte(`{"model":"unknown-model","messages":[{"role":"user","content":"hi"}],"top_k":40,"functions":[{"name":"test"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
+	req.Header.Set("X-OpenAI-Strict", "true")
+	rec := httptest.NewRecorder()
+	chat.handleChatCompletions(rec, req)
+	// Should not fail with 400 unsupported_parameter
+	if strings.Contains(rec.Body.String(), "unsupported_parameter") {
+		t.Fatalf("strict mode should not reject top_k or functions: %s", rec.Body.String())
 	}
 }

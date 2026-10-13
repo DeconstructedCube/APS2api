@@ -246,6 +246,57 @@ func TestStreamParallelWinnerContinuesBeyondRaceTimeout(t *testing.T) {
 		t.Fatalf("跨过 race_timeout 后仍应收到完整流, got %v", got)
 	}
 }
+func TestStreamParallelWinnerContinuesBeyondRaceTimeout_SlidingWindow(t *testing.T) {
+	raceTestNodes(t)
+
+	cfg := config.StaticProvider(config.AppConfig{ //nolint:exhaustruct
+		ParallelPoolEnabled: true,
+		ParallelPoolSize:    3,
+		ParallelNodeTopK:    80,
+		StickyNodePriority:  false,
+		MaxRetries:          2,
+		RaceTimeout:         1,
+	})
+
+	op := func(ctx context.Context, _ string) <-chan StreamChunk {
+		ch := make(chan StreamChunk, 2)
+		go func() {
+			defer close(ch)
+			select {
+			case ch <- StreamChunk{Data: map[string]any{"text": "first"}}:
+			case <-ctx.Done():
+				return
+			}
+			timer := time.NewTimer(1200 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case ch <- StreamChunk{Data: map[string]any{"text": "after-timeout"}}:
+			case <-ctx.Done():
+			}
+		}()
+		return ch
+	}
+
+	var got []string
+	StreamParallel(context.Background(), cfg, op, func(chunk StreamChunk) bool {
+		if chunk.Err != nil {
+			t.Fatalf("胜出流不应被 race_timeout 截断: %v", chunk.Err)
+		}
+		if text, _ := chunk.Data["text"].(string); text != "" {
+			got = append(got, text)
+		}
+		return true
+	})
+	if fmt.Sprint(got) != "[first after-timeout]" {
+		t.Fatalf("滑动窗口下跨过 race_timeout 后仍应收到完整流, got %v", got)
+	}
+}
+
 
 func TestStreamParallelYieldStopCancelsUpstream(t *testing.T) {
 	raceTestNodes(t)
@@ -374,6 +425,42 @@ func TestRunRaceReturnsGlobalRequestError(t *testing.T) {
 		t.Fatalf("请求级参数错误应优先返回且不被节点限流掩盖, got %v", err)
 	}
 }
+func TestRunRaceSlidingWindowReturnsGlobalRequestError(t *testing.T) {
+	raceTestNodes(t)
+	cfg := config.StaticProvider(config.AppConfig{ //nolint:exhaustruct
+		ParallelPoolEnabled: true,
+		ParallelPoolSize:    3,
+		ParallelNodeTopK:    80,
+		StickyNodePriority:  false,
+		MaxRetries:          2,
+		RaceTimeout:         1,
+	})
+	var launched atomic.Int32
+	_, err := RunRace(context.Background(), cfg, func(_ context.Context, uri string) (string, error) {
+		launched.Add(1)
+		switch {
+		case strings.Contains(uri, "node1"):
+			return "", NewInvalidArgumentError("bad request")
+		case strings.Contains(uri, "node2"):
+			return "", NewRateLimitError("quota", 0)
+		default:
+			return "", NewPermissionDeniedError("permission")
+		}
+	})
+	var ve *VertexError
+	if !errors.As(err, &ve) || ve.Kind != "invalid" {
+		t.Fatalf("滑动窗口下请求级参数错误应立即返回且不被限流掩盖, got %v", err)
+	}
+	// 触发硬错误后应立即终止，不得打满全部 (MaxRetries+1)*w = 9 次预算
+	if got := launched.Load(); got >= 9 {
+		t.Fatalf("遇到全局硬错误应立即中断，不继续补发，launched=%d", got)
+	}
+	health := nodes.LoadHealth()
+	if h := health["http://node1:8080"]; h != nil && h.FailCount > 0 {
+		t.Fatalf("全局硬错误不应增加对应节点失败计数: %+v", health)
+	}
+}
+
 
 func TestRunRaceSlidingWindowLaunchBudgetAndActiveLimit(t *testing.T) {
 	var added []nodes.Node

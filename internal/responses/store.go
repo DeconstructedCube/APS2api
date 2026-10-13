@@ -136,7 +136,7 @@ func (s *ResponseStore) CreateIdempotent(ctx context.Context, r ResponseRecord, 
 	if err != nil {
 		return "", false, false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if rec.ResourceKind == "" {
 		rec.ResourceKind = "response"
 	}
@@ -203,7 +203,7 @@ func (s *ResponseStore) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, q := range []string{"DELETE FROM resource_events WHERE resource_kind='response' AND resource_id=?", "DELETE FROM resource_event_counters WHERE resource_kind='response' AND resource_id=?", "DELETE FROM tool_states WHERE response_id=?", "DELETE FROM idempotency_keys WHERE resource_kind='response' AND resource_id=?"} {
 		if _, err = tx.ExecContext(ctx, q, id); err != nil {
 			return err
@@ -324,7 +324,7 @@ func (s *ResponseStore) AddConversationItems(ctx context.Context, id string, ite
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var start int64
 	if err = tx.QueryRowContext(ctx, `UPDATE conversations SET next_ordinal=next_ordinal+?,updated_at=? WHERE id=? RETURNING next_ordinal-?`, len(items), time.Now().Unix(), id, len(items)).Scan(&start); err != nil {
 		return err
@@ -376,18 +376,16 @@ func (s *ResponseStore) GetToolStates(ctx context.Context, callIDs []string, now
 
 func (s *ResponseStore) ConsumeToolStates(ctx context.Context, callIDs []string, hash string, at time.Time) error {
 	for _, id := range callIDs {
-		var prior string
-		var consumed int64
-		if err := s.db.QueryRowContext(ctx, `SELECT consumed_at,consume_hash FROM tool_states WHERE external_call_id=?`, id).Scan(&consumed, &prior); err != nil {
+		res, err := s.db.ExecContext(ctx, `UPDATE tool_states SET consumed_at=?,consume_hash=? WHERE external_call_id=? AND (consumed_at=0 OR consume_hash=?)`, at.Unix(), hash, id, hash)
+		if err != nil {
 			return err
 		}
-		if consumed != 0 && prior != hash {
-			return errors.New("tool state was already consumed by a different transcript")
-		}
-		if consumed == 0 {
-			if _, err := s.db.ExecContext(ctx, `UPDATE tool_states SET consumed_at=?,consume_hash=? WHERE external_call_id=?`, at.Unix(), hash, id); err != nil {
+		if n, _ := res.RowsAffected(); n == 0 {
+			var exists int
+			if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM tool_states WHERE external_call_id=?`, id).Scan(&exists); err != nil {
 				return err
 			}
+			return errors.New("tool state was already consumed by a different transcript")
 		}
 	}
 	return nil
@@ -407,7 +405,7 @@ func (s *ResponseStore) DeleteExpired(ctx context.Context, now time.Time) error 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	queries := []string{
 		"DELETE FROM tool_states WHERE response_id IN (SELECT id FROM responses WHERE expires_at<=?)",
 		"DELETE FROM resource_events WHERE resource_kind='response' AND resource_id IN (SELECT id FROM responses WHERE expires_at<=?)",
@@ -431,7 +429,7 @@ func (s *ResponseStore) MarkInterrupted(ctx context.Context, now time.Time) erro
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM responses WHERE status='in_progress'`)
 	if err != nil {
 		return err

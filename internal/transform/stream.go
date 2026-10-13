@@ -21,15 +21,23 @@ func streamCreated(requestID string) int64 {
 		return v.(int64)
 	}
 	now := time.Now().Unix()
-	actual, _ := streamCreatedByRequest.LoadOrStore(requestID, now)
-	if actual.(int64) == now && streamCreatedCount.Add(1) > 4096 {
+	actual, loaded := streamCreatedByRequest.LoadOrStore(requestID, now)
+	if !loaded && streamCreatedCount.Add(1) > 4096 {
 		streamCreatedByRequest.Range(func(k, _ any) bool {
-			streamCreatedByRequest.Delete(k)
-			streamCreatedCount.Add(-1)
+			if _, deleted := streamCreatedByRequest.LoadAndDelete(k); deleted {
+				streamCreatedCount.Add(-1)
+			}
 			return streamCreatedCount.Load() > 3072
 		})
 	}
 	return actual.(int64)
+}
+
+// ReleaseStreamCreated 在流结束时删除该请求的创建时间缓存。
+func ReleaseStreamCreated(requestID string) {
+	if _, loaded := streamCreatedByRequest.LoadAndDelete(requestID); loaded {
+		streamCreatedCount.Add(-1)
+	}
 }
 
 // FinishReasonUnspecified 是匿名端点每帧携带的 protobuf 默认值。
