@@ -102,6 +102,14 @@ func TestConvertChatRequest_MaxTokensInvalid(t *testing.T) {
 	if _, _, err := ConvertChatRequest(body, config.StaticProvider(config.DefaultConfig())); err == nil {
 		t.Error("expected error for max_tokens=0")
 	}
+	bodyFloat := map[string]any{
+		"model":      "m",
+		"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
+		"max_tokens": float64(1.9),
+	}
+	if _, _, err := ConvertChatRequest(bodyFloat, config.StaticProvider(config.DefaultConfig())); err == nil {
+		t.Error("expected error for max_tokens=1.9")
+	}
 }
 
 func TestBuildVertexVariables_SafetyDefault(t *testing.T) {

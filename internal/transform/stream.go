@@ -6,11 +6,39 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/bsfdsagfadg/vertex/internal/jsonx"
 )
+
+var streamCreatedByRequest sync.Map // request ID -> int64
+var streamCreatedCount atomic.Int64
+
+func streamCreated(requestID string) int64 {
+	if v, ok := streamCreatedByRequest.Load(requestID); ok {
+		return v.(int64)
+	}
+	now := time.Now().Unix()
+	actual, loaded := streamCreatedByRequest.LoadOrStore(requestID, now)
+	if !loaded && streamCreatedCount.Add(1) > 4096 {
+		streamCreatedByRequest.Range(func(k, _ any) bool {
+			if _, deleted := streamCreatedByRequest.LoadAndDelete(k); deleted {
+				streamCreatedCount.Add(-1)
+			}
+			return streamCreatedCount.Load() > 3072
+		})
+	}
+	return actual.(int64)
+}
+
+// ReleaseStreamCreated 在流结束时删除该请求的创建时间缓存。
+func ReleaseStreamCreated(requestID string) {
+	if _, loaded := streamCreatedByRequest.LoadAndDelete(requestID); loaded {
+		streamCreatedCount.Add(-1)
+	}
+}
 
 // FinishReasonUnspecified 是匿名端点每帧携带的 protobuf 默认值。
 const FinishReasonUnspecified = "FINISH_REASON_UNSPECIFIED"
@@ -138,7 +166,7 @@ func sseLine(obj map[string]any) string {
 
 // ConvertRealtimeChunk 把单个 Gemini 增量 dict 转为 OAI SSE 事件字符串列表。
 func ConvertRealtimeChunk(chunk map[string]any, model, requestID string, isFirst bool, trackers ...*StreamToolCallTracker) []string {
-	created := time.Now().Unix()
+	created := streamCreated(requestID)
 	base := func() map[string]any {
 		return map[string]any{
 			"id":      "chatcmpl-" + requestID,

@@ -3,6 +3,8 @@ package transport
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -179,6 +181,60 @@ func TestProxyChainRejectsSelfReference(t *testing.T) {
 		return adapter.ParseProxy(mapping, options...)
 	}, "SOCKS5://127.0.0.1:1080#candidate"); err == nil {
 		t.Fatal("self-referencing proxy chain was accepted")
+	}
+}
+
+func TestEvictInactiveLRUOnlyRemovesOldestIdleEntries(t *testing.T) {
+	StopAllProxies()
+	t.Cleanup(StopAllProxies)
+	proxyMutex.Lock()
+	base := time.Now()
+	for i := 0; i < maxProxyCacheEntries+1; i++ {
+		proxyMap["k"+strconv.Itoa(i)] = &proxyInfo{proxyURI: "u" + strconv.Itoa(i), lastUsedAt: base.Add(time.Duration(i) * time.Second)}
+	}
+	active := proxyMap["k10"]
+	active.activeRefs = 1
+	evicted := evictInactiveLRULocked(1)
+	_, oldestStillThere := proxyMap["k0"]
+	_, activeStillThere := proxyMap["k10"]
+	proxyMutex.Unlock()
+	if len(evicted) != 1 || evicted[0].proxyURI != "u0" || oldestStillThere || !activeStillThere {
+		t.Fatalf("unexpected LRU eviction: evicted=%v oldest=%v active=%v", len(evicted), oldestStillThere, activeStillThere)
+	}
+}
+func TestEvictInactiveLRUExcludesKeepKey(t *testing.T) {
+	StopAllProxies()
+	t.Cleanup(StopAllProxies)
+	proxyMutex.Lock()
+	base := time.Now()
+	proxyMap["k0"] = &proxyInfo{proxyURI: "u0", lastUsedAt: base}
+	proxyMap["k1"] = &proxyInfo{proxyURI: "u1", lastUsedAt: base.Add(time.Second)}
+	evicted := evictInactiveLRULocked(1, "k0")
+	_, k0There := proxyMap["k0"]
+	_, k1There := proxyMap["k1"]
+	proxyMutex.Unlock()
+	if len(evicted) != 1 || evicted[0].proxyURI != "u1" {
+		t.Fatalf("expected k1 to be evicted instead of keepKey k0: %v", evicted)
+	}
+	if !k0There || k1There {
+		t.Fatalf("keepKey k0 should remain and k1 should be evicted: k0=%v, k1=%v", k0There, k1There)
+	}
+}
+
+
+func TestTrackedConnReleasesActiveReferenceOnce(t *testing.T) {
+	left, right := net.Pipe()
+	defer right.Close()
+	info := &proxyInfo{activeRefs: 1}
+	conn := &trackedConn{Conn: left, info: info}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close tracked connection: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("second close tracked connection: %v", err)
+	}
+	if info.activeRefs != 0 {
+		t.Fatalf("active refs = %d, want 0", info.activeRefs)
 	}
 }
 
