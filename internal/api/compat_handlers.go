@@ -73,6 +73,11 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	cr := r.Clone(r.Context())
 	cr.Body = io.NopCloser(bytes.NewReader(reqBytes))
 	cr.ContentLength = int64(len(reqBytes))
+	if body["stream"] == true {
+		adapter := newStreamCompletionAdapter(w)
+		s.chat.handleChatCompletions(adapter, cr)
+		return
+	}
 	rec := newResponseRecorder()
 	s.chat.handleChatCompletions(rec, cr)
 	if rec.code < 200 || rec.code >= 300 {
@@ -81,7 +86,7 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(rec.Body.Bytes())
 		return
 	}
-	if strings.Contains(rec.Header().Get("Content-Type"), "text/event-stream") || body["stream"] == true {
+	if strings.Contains(rec.Header().Get("Content-Type"), "text/event-stream") {
 		writeCompletionStream(w, rec.Body.Bytes())
 		return
 	}
@@ -150,6 +155,119 @@ func writeCompletionStream(w http.ResponseWriter, data []byte) {
 		_ = sw.write("data: [DONE]\n\n")
 	}
 }
+type streamCompletionAdapter struct {
+	w          http.ResponseWriter
+	flusher    http.Flusher
+	header     http.Header
+	headerSent bool
+	code       int
+	buf        bytes.Buffer
+}
+
+func newStreamCompletionAdapter(w http.ResponseWriter) *streamCompletionAdapter {
+	f, _ := w.(http.Flusher)
+	return &streamCompletionAdapter{
+		w:       w,
+		flusher: f,
+		header:  make(http.Header),
+		code:    http.StatusOK,
+	}
+}
+
+func (a *streamCompletionAdapter) Header() http.Header {
+	return a.header
+}
+
+func (a *streamCompletionAdapter) WriteHeader(code int) {
+	a.code = code
+}
+
+func (a *streamCompletionAdapter) Write(p []byte) (int, error) {
+	if a.code != 0 && (a.code < 200 || a.code >= 300) {
+		if !a.headerSent {
+			for k, v := range a.header {
+				a.w.Header()[k] = v
+			}
+			a.w.WriteHeader(a.code)
+			a.headerSent = true
+		}
+		return a.w.Write(p)
+	}
+
+	a.buf.Write(p)
+	for {
+		raw := a.buf.Bytes()
+		idx := bytes.Index(raw, []byte("\n\n"))
+		if idx == -1 {
+			break
+		}
+		msg := string(raw[:idx])
+		a.buf.Next(idx + 2)
+
+		if !a.headerSent {
+			a.w.Header().Set("Content-Type", "text/event-stream")
+			a.w.Header().Set("Cache-Control", "no-cache")
+			a.w.Header().Set("Connection", "keep-alive")
+			a.w.WriteHeader(http.StatusOK)
+			a.headerSent = true
+		}
+
+		for _, line := range strings.Split(msg, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			payload := strings.TrimPrefix(line, "data: ")
+			if payload == "[DONE]" {
+				_, _ = a.w.Write([]byte("data: [DONE]\n\n"))
+				if a.flusher != nil {
+					a.flusher.Flush()
+				}
+				continue
+			}
+			var chunk map[string]any
+			if json.Unmarshal([]byte(payload), &chunk) != nil {
+				continue
+			}
+			out := map[string]any{
+				"id":      chunk["id"],
+				"object":  "text_completion",
+				"created": chunk["created"],
+				"model":   chunk["model"],
+			}
+			if cs, ok := chunk["choices"].([]any); ok {
+				outChoices := []any{}
+				for _, rv := range cs {
+					c, _ := rv.(map[string]any)
+					d, _ := c["delta"].(map[string]any)
+					txt, _ := d["content"].(string)
+					outChoices = append(outChoices, map[string]any{
+						"index":         c["index"],
+						"text":          txt,
+						"logprobs":      nil,
+						"finish_reason": c["finish_reason"],
+					})
+				}
+				out["choices"] = outChoices
+			}
+			if usage, ok := chunk["usage"]; ok {
+				out["usage"] = usage
+			}
+			_, _ = a.w.Write([]byte(sseEvent(out)))
+			if a.flusher != nil {
+				a.flusher.Flush()
+			}
+		}
+	}
+	return len(p), nil
+}
+
+func (a *streamCompletionAdapter) Flush() {
+	if a.flusher != nil {
+		a.flusher.Flush()
+	}
+}
+
 
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
