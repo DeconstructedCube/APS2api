@@ -375,20 +375,26 @@ func (s *ResponseStore) GetToolStates(ctx context.Context, callIDs []string, now
 }
 
 func (s *ResponseStore) ConsumeToolStates(ctx context.Context, callIDs []string, hash string, at time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	for _, id := range callIDs {
-		res, err := s.db.ExecContext(ctx, `UPDATE tool_states SET consumed_at=?,consume_hash=? WHERE external_call_id=? AND (consumed_at=0 OR consume_hash=?)`, at.Unix(), hash, id, hash)
+		res, err := tx.ExecContext(ctx, `UPDATE tool_states SET consumed_at=?,consume_hash=? WHERE external_call_id=? AND (consumed_at=0 OR consume_hash=?)`, at.Unix(), hash, id, hash)
 		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			var exists int
-			if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM tool_states WHERE external_call_id=?`, id).Scan(&exists); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT 1 FROM tool_states WHERE external_call_id=?`, id).Scan(&exists); err != nil {
 				return err
 			}
 			return errors.New("tool state was already consumed by a different transcript")
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 func (s *ResponseStore) ConsumeToolState(ctx context.Context, callID, hash string, at time.Time) (ToolState, error) {
 	var t ToolState

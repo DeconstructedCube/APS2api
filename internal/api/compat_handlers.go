@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -394,10 +395,13 @@ func (s *Server) runBackgroundResponse(ctx context.Context, cancel context.Cance
 	defer cancel()
 	defer func() { s.backgroundMu.Lock(); delete(s.backgroundCancels, rec.ID); s.backgroundMu.Unlock() }()
 	resp, err := s.chat.vc.CompleteChat(ctx, model, payload)
-	if ctx.Err() != nil {
-		return
-	}
+	persistCtx := context.WithoutCancel(ctx)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			if current, getErr := s.responseStore.Get(persistCtx, rec.ID, time.Now()); getErr == nil && current.Status == "cancelled" {
+				return
+			}
+		}
 		b, _ := json.Marshal(map[string]any{"message": err.Error()})
 		rec.Status = "failed"
 		rec.Error = b
@@ -408,20 +412,17 @@ func (s *Server) runBackgroundResponse(ctx context.Context, cancel context.Cance
 		rec.Usage, _ = json.Marshal(usage)
 	}
 	rec.CompletedAt = time.Now().Unix()
-	if ctx.Err() != nil {
-		return
-	}
-	updated, _ := s.responseStore.UpdateTerminalCAS(ctx, rec)
+	updated, _ := s.responseStore.UpdateTerminalCAS(persistCtx, rec)
 	if !updated {
 		return
 	}
 	if rec.ConversationID != "" && rec.Status == "completed" {
 		ob, _ := json.Marshal(map[string]any{"type": "message", "role": "assistant", "content": json.RawMessage(rec.Output)})
-		_ = s.responseStore.AddConversationItems(ctx, rec.ConversationID, []responseproto.InputItem{{ID: "item_" + reqID24(), Data: ob, CreatedAt: rec.CompletedAt}})
+		_ = s.responseStore.AddConversationItems(persistCtx, rec.ConversationID, []responseproto.InputItem{{ID: "item_" + reqID24(), Data: ob, CreatedAt: rec.CompletedAt}})
 	}
 	eventData, _ := json.Marshal(map[string]any{"id": rec.ID, "status": rec.Status})
-	seq, _ := s.responseStore.AllocateEventSequence(ctx, "response", rec.ID)
-	_ = s.responseStore.AppendEvent(ctx, responseproto.Event{ResourceKind: "response", ResourceID: rec.ID, Sequence: seq, EventID: rec.ID + "_terminal", EventType: "response." + rec.Status, Data: eventData, CreatedAt: rec.CompletedAt})
+	seq, _ := s.responseStore.AllocateEventSequence(persistCtx, "response", rec.ID)
+	_ = s.responseStore.AppendEvent(persistCtx, responseproto.Event{ResourceKind: "response", ResourceID: rec.ID, Sequence: seq, EventID: rec.ID + "_terminal", EventType: "response." + rec.Status, Data: eventData, CreatedAt: rec.CompletedAt})
 }
 
 func (s *Server) persistResponse(r *http.Request, in responseproto.CreateRequest, id string, input []any, out map[string]any) {
@@ -470,7 +471,11 @@ func (s *Server) handleResponseResource(w http.ResponseWriter, r *http.Request) 
 		}
 		items, err := s.responseStore.InputItems(r.Context(), id)
 		if err != nil {
-			oaiError(w, 404, "response not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "response not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to get input items", "server_error")
+			}
 			return
 		}
 		data := make([]any, 0, len(items))
@@ -495,7 +500,11 @@ func (s *Server) handleResponseResource(w http.ResponseWriter, r *http.Request) 
 		before, beforeErr := s.responseStore.Get(r.Context(), id, time.Now())
 		rec, err := s.responseStore.Cancel(r.Context(), id, time.Now())
 		if err != nil {
-			oaiError(w, 404, "response not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "response not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to cancel response", "server_error")
+			}
 			return
 		}
 		if beforeErr == nil && before.Status == "in_progress" && rec.Status == "cancelled" {
@@ -516,7 +525,11 @@ func (s *Server) handleResponseResource(w http.ResponseWriter, r *http.Request) 
 			after := r.Header.Get("Last-Event-ID")
 			events, err := s.responseStore.ReplayEvents(r.Context(), "response", id, after)
 			if err != nil {
-				oaiError(w, 404, "response not found", "not_found")
+				if errors.Is(err, sql.ErrNoRows) {
+					oaiError(w, 404, "response not found", "not_found")
+				} else {
+					oaiError(w, 500, "failed to replay events", "server_error")
+				}
 				return
 			}
 			sw := newSSEWriter(w, "text/event-stream")
@@ -532,13 +545,21 @@ func (s *Server) handleResponseResource(w http.ResponseWriter, r *http.Request) 
 		}
 		rec, err := s.responseStore.Get(r.Context(), id, time.Now())
 		if err != nil {
-			oaiError(w, 404, "response not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "response not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to get response", "server_error")
+			}
 			return
 		}
 		writeResponseRecord(w, rec)
 	case http.MethodDelete:
 		if err := s.responseStore.Delete(r.Context(), id); err != nil {
-			oaiError(w, 404, "response not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "response not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to delete response", "server_error")
+			}
 			return
 		}
 		writeJSON(w, 200, map[string]any{"id": id, "object": "response", "deleted": true})
@@ -654,7 +675,11 @@ func (s *Server) handleConversationResource(w http.ResponseWriter, r *http.Reque
 				items = append(items, responseproto.InputItem{ID: itemID, Data: data, CreatedAt: now})
 			}
 			if err := s.responseStore.AddConversationItems(r.Context(), id, items); err != nil {
-				oaiError(w, 404, "conversation not found", "not_found")
+				if errors.Is(err, sql.ErrNoRows) {
+					oaiError(w, 404, "conversation not found", "not_found")
+				} else {
+					oaiError(w, 500, "failed to add conversation items", "server_error")
+				}
 				return
 			}
 			writeJSON(w, http.StatusCreated, map[string]any{"object": "list", "data": body.Items, "has_more": false})
@@ -674,7 +699,11 @@ func (s *Server) handleConversationResource(w http.ResponseWriter, r *http.Reque
 		}
 		items, err := s.responseStore.ListConversationItems(r.Context(), id, after, limit+1)
 		if err != nil {
-			oaiError(w, 404, "conversation not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "conversation not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to list conversation items", "server_error")
+			}
 			return
 		}
 		hasMore := len(items) > limit
@@ -694,7 +723,11 @@ func (s *Server) handleConversationResource(w http.ResponseWriter, r *http.Reque
 	case http.MethodGet:
 		c, err := s.responseStore.GetConversation(r.Context(), id)
 		if err != nil {
-			oaiError(w, 404, "conversation not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "conversation not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to get conversation", "server_error")
+			}
 			return
 		}
 		var meta any
@@ -702,7 +735,11 @@ func (s *Server) handleConversationResource(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, 200, map[string]any{"id": c.ID, "object": "conversation", "metadata": meta, "created_at": c.CreatedAt})
 	case http.MethodDelete:
 		if err := s.responseStore.DeleteConversation(r.Context(), id); err != nil {
-			oaiError(w, 404, "conversation not found", "not_found")
+			if errors.Is(err, sql.ErrNoRows) {
+				oaiError(w, 404, "conversation not found", "not_found")
+			} else {
+				oaiError(w, 500, "failed to delete conversation", "server_error")
+			}
 			return
 		}
 		writeJSON(w, 200, map[string]any{"id": id, "object": "conversation", "deleted": true})
