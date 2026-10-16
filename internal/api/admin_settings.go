@@ -9,19 +9,17 @@ import (
 //nolint:gochecknoglobals // Constant-like map of allowed settings
 var adminAllowedSettings = map[string]bool{
 	"max_retries": true, "max_spill_mb": true,
-	"max_request_mb": true, "max_n": true,
+	"max_request_mb": true,
 	"request_timeout":               true,
 	"race_timeout":                  true,
 	"stream_idle_timeout_seconds":   true,
 	"recaptcha_try_entry_or_direct": true,
 	"parallel_pool_enabled":         true, "parallel_pool_size": true,
-	"parallel_pool_delay_dynamic":             true,
 	"entry_proxy_probe_enabled":               true,
 	"entry_proxy_probe_interval_seconds":      true,
 	"entry_proxy_probe_cooldown_seconds":      true,
 	"entry_proxy_probe_auto_disable_enabled":  true,
 	"entry_proxy_probe_auto_disable_failures": true,
-	"parallel_pool_delay_ms":                  true,
 	"active_node_uri":                         true,
 	"sticky_node_priority":                    true,
 	"parallel_pool_retry_enabled":             true,
@@ -33,7 +31,6 @@ func (adm *AdminHandler) adminGetSettings(w http.ResponseWriter, _ *http.Request
 		"max_retries":                   adm.cfg.MaxRetries(),
 		"max_spill_mb":                  adm.cfg.MaxSpillMB(),
 		"max_request_mb":                adm.cfg.MaxRequestMB(),
-		"max_n":                         adm.cfg.MaxN(),
 		"request_timeout":               adm.cfg.RequestTimeout(),
 		"race_timeout":                  adm.cfg.RaceTimeout(),
 		"stream_idle_timeout_seconds":   adm.cfg.StreamIdleTimeoutSeconds(),
@@ -43,8 +40,6 @@ func (adm *AdminHandler) adminGetSettings(w http.ResponseWriter, _ *http.Request
 		"parallel_pool_size":            adm.cfg.ParallelPoolSize(),
 		"active_node_uri":               adm.cfg.ActiveNodeURI(),
 		"proxy_url_candidates":          config.ListProxyCandidates(),
-		"parallel_pool_delay_dynamic":   adm.cfg.ParallelPoolDelayDynamic(),
-		"parallel_pool_delay_ms":        adm.cfg.ParallelPoolDelayMs(),
 		"entry_proxy_probe_enabled":               adm.cfg.EntryProxyProbeEnabled(),
 		"entry_proxy_probe_interval_seconds":      adm.cfg.EntryProxyProbeIntervalSeconds(),
 		"entry_proxy_probe_cooldown_seconds":      adm.cfg.EntryProxyProbeCooldownSeconds(),
@@ -76,7 +71,7 @@ func (adm *AdminHandler) adminPutSettings(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		switch k {
-		case "max_retries", "max_spill_mb", "max_request_mb", "max_n", "parallel_pool_size", "parallel_pool_delay_ms", "request_timeout", "race_timeout", "stream_idle_timeout_seconds",
+		case "max_retries", "max_spill_mb", "max_request_mb", "parallel_pool_size", "request_timeout", "race_timeout", "stream_idle_timeout_seconds",
 			"entry_proxy_probe_interval_seconds", "entry_proxy_probe_cooldown_seconds", "entry_proxy_probe_auto_disable_failures":
 			if f, ok := v.(float64); ok {
 				val := int(f)

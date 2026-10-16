@@ -12,7 +12,6 @@ func (s staticConfig) AdminPassword() string             { return s.c.AdminPassw
 func (s staticConfig) ProxyURL() string                  { return s.c.ProxyURL }
 func (s staticConfig) DebugPprof() bool                  { return s.c.DebugPprof }
 func (s staticConfig) DebugMode() bool                   { return s.c.DebugMode }
-func (s staticConfig) MaxN() int                         { return s.c.MaxN }
 func (s staticConfig) MaxRequestMB() int                 { return s.c.MaxRequestMB }
 func (s staticConfig) MaxSpillMB() int                   { return s.c.MaxSpillMB }
 func (s staticConfig) RequestTimeout() int               { return s.c.RequestTimeout }
@@ -24,8 +23,6 @@ func (s staticConfig) ParallelPoolEnabled() bool         { return s.c.ParallelPo
 func (s staticConfig) StickyNodePriority() bool          { return s.c.StickyNodePriority }
 func (s staticConfig) ParallelPoolRetryEnabled() bool    { return s.c.ParallelPoolRetryEnabled }
 func (s staticConfig) ParallelPoolSize() int             { return s.c.ParallelPoolSize }
-func (s staticConfig) ParallelPoolDelayDynamic() bool    { return s.c.ParallelPoolDelayDynamic }
-func (s staticConfig) ParallelPoolDelayMs() int          { return s.c.ParallelPoolDelayMs }
 func (s staticConfig) EntryProxyProbeEnabled() bool      { return s.c.EntryProxyProbeEnabled }
 func (s staticConfig) EntryProxyProbeIntervalSeconds() int {
 	return s.c.EntryProxyProbeIntervalSeconds
@@ -46,8 +43,6 @@ func (s staticConfig) AutoRefreshLogs() bool                    { return s.c.Get
 func (s staticConfig) BaseModels() []string                     { return s.c.BaseModels() }
 func (s staticConfig) ModelRegistry() []ModelEntry              { return s.c.ModelRegistry() }
 func (s staticConfig) AliasMap() map[string]string              { return s.c.AliasMap() }
-func (s staticConfig) ModelsWithFakeVariants() []string         { return s.c.ModelsWithFakeVariants() }
-func (s staticConfig) FakePrefixes() []string                   { return s.c.FakePrefixes() }
 func (s staticConfig) ResolveModelName(s_ string) string        { return s.c.ResolveModelName(s_) }
 func (s staticConfig) LookupModel(s_ string) (ModelEntry, bool) { return s.c.LookupModel(s_) }
 func (s staticConfig) ConfigDir() string                        { return s.c.ConfigDir() }

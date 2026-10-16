@@ -38,8 +38,8 @@ async function loadData() {
     activeNodesCount.value = nodes.filter((n) => !n.disabled && (!nodesRes.health[n.raw_uri]?.cooldown_until || nodesRes.health[n.raw_uri].cooldown_until <= now)).length
     avgLatency.value = testedCount > 0 ? `${Math.round(totalMs / testedCount)} ms` : '-'
 
-    const settings = await api.getSettings()
-    poolSize.value = settings.parallel_pool_size || 1
+    const res = await api.getSettings()
+    poolSize.value = res?.settings?.parallel_pool_size || 1
   } catch (e) {
     console.error(e)
   }

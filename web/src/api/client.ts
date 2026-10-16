@@ -35,14 +35,17 @@ export interface SubscriptionItem {
   name: string
   url: string
   user_agent?: string
-  interval_minutes: number
-  last_updated_at?: number
+  custom_ua_id?: string
+  update_interval: number
+  adopt_manual?: boolean
+  last_update_time?: number
+  last_error?: string
 }
 
 export interface CustomUAItem {
   id: string
   name: string
-  content: string
+  user_agent: string
 }
 
 export interface ApiKeyItem {
@@ -54,7 +57,7 @@ export interface ApiKeyItem {
 export interface SystemSettings {
   parallel_pool_size: number
   race_timeout: number
-  stream_idle_timeout: number
+  stream_idle_timeout_seconds: number
   max_retries: number
   [key: string]: unknown
 }
@@ -90,21 +93,30 @@ export const api = {
 
   // 仪表盘与配置
   getStats: () => request<Record<string, unknown>>('/stats'),
-  getSettings: () => request<SystemSettings>('/settings'),
-  updateSettings: (payload: SystemSettings) => request('/settings', {
+  getSettings: () => request<{ settings: SystemSettings }>('/settings'),
+  updateSettings: (payload: SystemSettings) => request<{ ok: boolean }>('/settings', {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ settings: payload }),
   }),
 
   // 节点池
   getNodes: () => request<{ nodes: NodeItem[]; health: Record<string, NodeHealthItem> }>('/nodes'),
-  deleteNode: (uri: string) => request('/nodes?uri=' + encodeURIComponent(uri), { method: 'DELETE' }),
-  enableNode: (uri: string) => request('/nodes/enable?uri=' + encodeURIComponent(uri), { method: 'POST' }),
+  deleteNode: (uri: string) => request<{ ok: boolean }>('/nodes', {
+    method: 'DELETE',
+    body: JSON.stringify({ raw_uri: uri }),
+  }),
+  enableNode: (uri: string) => request<{ ok: boolean }>('/nodes/enable', {
+    method: 'POST',
+    body: JSON.stringify({ raw_uri: uri }),
+  }),
   importNodes: (text: string) => request('/nodes/import', {
     method: 'POST',
     body: JSON.stringify({ text }),
   }),
-  testSingleNode: (uri: string) => request('/nodes/test?uri=' + encodeURIComponent(uri), { method: 'POST' }),
+  testSingleNode: (uri: string) => request<{ ok: boolean; elapsed_ms: number; error: string; disabled: boolean }>('/nodes/test', {
+    method: 'POST',
+    body: JSON.stringify({ raw_uri: uri }),
+  }),
   testAllNodes: () => request('/nodes/test-all', { method: 'POST' }),
   getTestProgress: () => request<{
     running: boolean
@@ -117,7 +129,10 @@ export const api = {
   pauseTest: () => request('/nodes/test-pause', { method: 'POST' }),
   resumeTest: () => request('/nodes/test-resume', { method: 'POST' }),
   terminateTest: () => request('/nodes/test-terminate', { method: 'POST' }),
-  sortNodes: (desc: boolean) => request('/nodes/sort?desc=' + (desc ? 'true' : 'false'), { method: 'POST' }),
+  sortNodes: (desc: boolean) => request<{ ok: boolean }>('/nodes/sort', {
+    method: 'POST',
+    body: JSON.stringify({ desc }),
+  }),
   dedupNodes: () => request('/nodes/deduplicate', { method: 'POST' }),
   previewDedupNodes: () => request<{ groups: number; duplicate_count: number }>('/nodes/deduplicate/preview'),
   importNodesJson: (text: string) => request('/nodes/import-json', {
@@ -152,7 +167,10 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ uris }),
   }),
-  deleteProxy: (uri: string) => request('/proxy-nodes?uri=' + encodeURIComponent(uri), { method: 'DELETE' }),
+  deleteProxy: (uri: string) => request<{ ok: boolean; was_active: boolean }>('/proxy-nodes', {
+    method: 'DELETE',
+    body: JSON.stringify({ raw_uri: uri }),
+  }),
   testBatchProxies: () => request('/proxy-nodes/test-batch', { method: 'POST' }),
   batchEnableProxies: () => request('/proxy-nodes/enable-batch', { method: 'POST' }),
   batchDisableProxies: () => request('/proxy-nodes/disable-batch', { method: 'POST' }),
@@ -160,8 +178,8 @@ export const api = {
 
   // 订阅与 UA
   getSubscriptions: () => request<{ subscriptions: SubscriptionItem[]; custom_uas: CustomUAItem[] }>('/subscriptions/list'),
-  saveSubscription: (payload: { name: string; url: string; user_agent?: string; interval_minutes: number }) =>
-    request('/subscriptions/save', {
+  saveSubscription: (payload: { name: string; url: string; user_agent?: string; update_interval: number; adopt_manual?: boolean }) =>
+    request<{ ok: boolean; id: string }>('/subscriptions/save', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -173,9 +191,9 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(id ? { id } : {}),
   }),
-  saveCustomUA: (name: string, content: string) => request('/subscriptions/custom_ua/save', {
+  saveCustomUA: (name: string, user_agent: string) => request<{ ok: boolean; id: string }>('/subscriptions/custom_ua/save', {
     method: 'POST',
-    body: JSON.stringify({ name, content }),
+    body: JSON.stringify({ name, user_agent }),
   }),
   deleteCustomUA: (id: string) => request('/subscriptions/custom_ua/delete', {
     method: 'POST',

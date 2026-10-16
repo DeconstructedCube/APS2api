@@ -9,7 +9,6 @@ type ConfigProvider interface {
 	DebugMode() bool
 
 
-	MaxN() int
 	MaxRequestMB() int
 	MaxSpillMB() int
 	RequestTimeout() int
@@ -24,8 +23,6 @@ type ConfigProvider interface {
 	StickyNodePriority() bool
 	ParallelPoolRetryEnabled() bool
 	ParallelPoolSize() int
-	ParallelPoolDelayDynamic() bool
-	ParallelPoolDelayMs() int
 	EntryProxyProbeEnabled() bool
 	EntryProxyProbeIntervalSeconds() int
 	EntryProxyProbeCooldownSeconds() int
@@ -39,8 +36,6 @@ type ConfigProvider interface {
 	BaseModels() []string
 	ModelRegistry() []ModelEntry
 	AliasMap() map[string]string
-	ModelsWithFakeVariants() []string
-	FakePrefixes() []string
 	ResolveModelName(string) string
 	LookupModel(string) (ModelEntry, bool)
 
@@ -63,7 +58,6 @@ func (d dynamicConfig) AdminPassword() string             { return Load().AdminP
 func (d dynamicConfig) ProxyURL() string                  { return Load().ProxyURL }
 func (d dynamicConfig) DebugPprof() bool                  { return Load().DebugPprof }
 func (d dynamicConfig) DebugMode() bool                   { return Load().DebugMode }
-func (d dynamicConfig) MaxN() int                         { return Load().MaxN }
 func (d dynamicConfig) MaxRequestMB() int                 { return Load().MaxRequestMB }
 func (d dynamicConfig) MaxSpillMB() int                   { return Load().MaxSpillMB }
 func (d dynamicConfig) RequestTimeout() int               { return Load().RequestTimeout }
@@ -82,8 +76,6 @@ func (d dynamicConfig) ParallelPoolEnabled() bool      { return Load().ParallelP
 func (d dynamicConfig) StickyNodePriority() bool       { return Load().StickyNodePriority }
 func (d dynamicConfig) ParallelPoolRetryEnabled() bool { return Load().ParallelPoolRetryEnabled }
 func (d dynamicConfig) ParallelPoolSize() int          { return Load().ParallelPoolSize }
-func (d dynamicConfig) ParallelPoolDelayDynamic() bool { return Load().ParallelPoolDelayDynamic }
-func (d dynamicConfig) ParallelPoolDelayMs() int       { return Load().ParallelPoolDelayMs }
 func (d dynamicConfig) EntryProxyProbeEnabled() bool   { return Load().EntryProxyProbeEnabled }
 func (d dynamicConfig) EntryProxyProbeIntervalSeconds() int {
 	return Load().EntryProxyProbeIntervalSeconds
@@ -103,8 +95,6 @@ func (d dynamicConfig) ParallelNodeTopK() int           { return Load().Parallel
 func (d dynamicConfig) BaseModels() []string                    { return Load().BaseModels() }
 func (d dynamicConfig) ModelRegistry() []ModelEntry             { return Load().ModelRegistry() }
 func (d dynamicConfig) AliasMap() map[string]string             { return Load().AliasMap() }
-func (d dynamicConfig) ModelsWithFakeVariants() []string        { return Load().ModelsWithFakeVariants() }
-func (d dynamicConfig) FakePrefixes() []string                  { return Load().FakePrefixes() }
 func (d dynamicConfig) ResolveModelName(s string) string        { return Load().ResolveModelName(s) }
 func (d dynamicConfig) LookupModel(s string) (ModelEntry, bool) { return Load().LookupModel(s) }
 func (d dynamicConfig) AutoRefreshLogs() bool                   { return Load().GetAutoRefreshLogs() }

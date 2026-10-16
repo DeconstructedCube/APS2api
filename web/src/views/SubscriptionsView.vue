@@ -38,7 +38,8 @@ async function handleSaveSub() {
     name: subName.value.trim(),
     url: subUrl.value.trim(),
     user_agent: subUa.value,
-    interval_minutes: Number(subInterval.value) || 0,
+    update_interval: Number(subInterval.value) || 0,
+    adopt_manual: subAdoptManual.value,
   })
   showAddSub.value = false
   subName.value = ''
@@ -145,8 +146,8 @@ onMounted(() => {
               <td class="px-4 py-3 font-medium text-gray-800">{{ s.name }}</td>
               <td class="px-4 py-3 font-mono text-gray-500 max-w-xs truncate" :title="s.url">{{ s.url }}</td>
               <td class="px-4 py-3 text-gray-600">{{ s.user_agent || '默认 (Chrome)' }}</td>
-              <td class="px-4 py-3 text-gray-600">{{ s.interval_minutes > 0 ? `${s.interval_minutes} 分钟` : '手动触发' }}</td>
-              <td class="px-4 py-3 text-gray-400">{{ s.last_updated_at ? new Date(s.last_updated_at * 1000).toLocaleString() : '未更新' }}</td>
+              <td class="px-4 py-3 text-gray-600">{{ s.update_interval > 0 ? `${s.update_interval} 分钟` : '手动触发' }}</td>
+              <td class="px-4 py-3 text-gray-400">{{ s.last_update_time ? new Date(s.last_update_time * 1000).toLocaleString() : '未更新' }}</td>
               <td class="px-4 py-3 text-right space-x-2">
                 <button type="button" class="text-emerald-600 font-medium hover:underline" @click="handleUpdateSingle(s.id)">更新</button>
                 <button type="button" class="text-rose-600 font-medium hover:underline" @click="openDeleteModal(s.id)">删除</button>
@@ -178,7 +179,7 @@ onMounted(() => {
             </tr>
             <tr v-for="u in customUAs" :key="u.id" class="hover:bg-gray-50/50">
               <td class="px-4 py-3 font-medium text-gray-800">{{ u.name }}</td>
-              <td class="px-4 py-3 font-mono text-gray-600 max-w-md truncate" :title="u.content">{{ u.content }}</td>
+              <td class="px-4 py-3 font-mono text-gray-600 max-w-md truncate" :title="u.user_agent">{{ u.user_agent }}</td>
               <td class="px-4 py-3 text-right">
                 <button type="button" class="text-rose-600 font-medium hover:underline" @click="handleDeleteUA(u.id)">删除</button>
               </td>
@@ -207,7 +208,7 @@ onMounted(() => {
             <option value="clash-verge/v2.5.2">clash-verge/v2.5.2</option>
             <option value="Clash.Meta">Clash.Meta</option>
             <option value="v2rayNG/1.8.5">v2rayNG/1.8.5</option>
-            <option v-for="u in customUAs" :key="u.id" :value="u.content">{{ u.name }}</option>
+            <option v-for="u in customUAs" :key="u.id" :value="u.user_agent">{{ u.name }}</option>
           </select>
         </div>
         <div>

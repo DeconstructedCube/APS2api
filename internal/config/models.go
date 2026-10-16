@@ -280,9 +280,6 @@ func LookupModel(model string) (ModelEntry, bool) {
 	return ModelEntry{}, false
 }
 
-func modelsWithFakeVariants(_ bool) []string {
-	return BaseModels()
-}
 
 func ResolveModelName(model string) string {
 	if real, ok := loadModelsFile().AliasMap[model]; ok {
@@ -312,9 +309,5 @@ func WriteModels(models []string, aliasMap map[string]string) error {
 func (c AppConfig) BaseModels() []string        { return BaseModels() }
 func (c AppConfig) ModelRegistry() []ModelEntry { return ModelRegistry() }
 func (c AppConfig) AliasMap() map[string]string { return AliasMap() }
-func (c AppConfig) ModelsWithFakeVariants() []string {
-	return BaseModels()
-}
-func (c AppConfig) FakePrefixes() []string                      { return nil }
 func (c AppConfig) ResolveModelName(model string) string        { return ResolveModelName(model) }
 func (c AppConfig) LookupModel(model string) (ModelEntry, bool) { return LookupModel(model) }

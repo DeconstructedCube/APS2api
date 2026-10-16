@@ -6,10 +6,10 @@ import Button from '@/components/ui/Button.vue'
 import { Sliders, Save, Check } from 'lucide-vue-next'
 
 const settings = ref<SystemSettings>({
-  parallel_pool_size: 5,
-  race_timeout: 6,
-  stream_idle_timeout: 45,
-  max_retries: 2,
+  parallel_pool_size: 15,
+  race_timeout: 60,
+  stream_idle_timeout_seconds: 20,
+  max_retries: 1,
 })
 
 const saving = ref(false)
@@ -17,9 +17,11 @@ const saved = ref(false)
 
 async function loadSettings() {
   const res = await api.getSettings()
-  settings.value = {
-    ...settings.value,
-    ...res,
+  if (res?.settings) {
+    settings.value = {
+      ...settings.value,
+      ...res.settings,
+    }
   }
 }
 
@@ -80,7 +82,7 @@ onMounted(() => {
         <div>
           <label class="block font-semibold text-gray-700 mb-1">流式包间超时 (Stream Idle Timeout, 秒)</label>
           <input
-            v-model.number="settings.stream_idle_timeout"
+            v-model.number="settings.stream_idle_timeout_seconds"
             type="number"
             min="5"
             max="300"

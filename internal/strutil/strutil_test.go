@@ -42,14 +42,3 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
-func TestSnakeCamel(t *testing.T) {
-	if got := SnakeToCamel("max_output_tokens"); got != "maxOutputTokens" {
-		t.Errorf("SnakeToCamel failed: %q", got)
-	}
-	if got := SnakeToCamel("temperature"); got != "temperature" {
-		t.Errorf("SnakeToCamel without underscore should remain untouched: %q", got)
-	}
-	if got := CamelToSnake("maxOutputTokens"); got != "max_output_tokens" {
-		t.Errorf("CamelToSnake failed: %q", got)
-	}
-}

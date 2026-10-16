@@ -7,14 +7,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"AnonymousVertex/internal/strutil"
 )
 
 func padB64(s string) string {
-	s = strings.ReplaceAll(strings.ReplaceAll(s, "-", "+"), "_", "/")
-	if pad := len(s) % 4; pad != 0 {
-		s += strings.Repeat("=", 4-pad)
-	}
-	return s
+	return strutil.PadBase64(s)
 }
 
 // ParseURI 解析各种协议的节点链接

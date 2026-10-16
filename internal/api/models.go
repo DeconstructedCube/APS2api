@@ -17,12 +17,6 @@ func resolveConfiguredModel(rawModel string, cfg config.ConfigProvider) (actualM
 	return actualModel, true
 }
 
-func oaiModelNotFound(w http.ResponseWriter, model string) {
-	writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{
-		"message": "Model '" + model + "' not found.", "type": "invalid_request_error", "code": "model_not_found", "param": "model",
-	}})
-}
-
 func geminiModelNotFound(w http.ResponseWriter, model string) {
 	writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{
 		"code": 404, "message": "Model '" + model + "' not found.", "status": "NOT_FOUND",

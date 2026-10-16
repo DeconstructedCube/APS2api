@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"AnonymousVertex/internal/strutil"
 )
 
 func errToStr(err error) string {
@@ -17,12 +19,6 @@ func errToStr(err error) string {
 	return err.Error()
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 func decodeSubBase64(s string) ([]byte, error) {
 	s = strings.TrimSpace(s)
@@ -35,11 +31,7 @@ func decodeSubBase64(s string) ([]byte, error) {
 	if b, err := base64.URLEncoding.DecodeString(s); err == nil {
 		return b, nil
 	}
-	t := strings.ReplaceAll(strings.ReplaceAll(s, "-", "+"), "_", "/")
-	if pad := len(t) % 4; pad != 0 {
-		t += strings.Repeat("=", 4-pad)
-	}
-	return base64.StdEncoding.DecodeString(t)
+	return base64.StdEncoding.DecodeString(strutil.PadBase64(s))
 }
 
 func parseInlineYamlAttrs(s string) map[string]string {
@@ -145,12 +137,7 @@ func isTruthy(v string) bool {
 }
 
 func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if trimmed := strings.TrimSpace(v); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
+	return strutil.FirstNonEmpty(values...)
 }
 
 func parseInlineYamlObject(s string) map[string]string {

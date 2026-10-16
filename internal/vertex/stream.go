@@ -23,11 +23,9 @@ import (
 
 // finishReasonUnspecified 是匿名 batchGraphql 每帧都携带的 protobuf 默认值（无意义）。
 //
-// 流式最关键红线（红线⑤）：匿名端点每个增量帧都带 finishReason="FINISH_REASON_UNSPECIFIED"，
-// 只有真正结束时才给 STOP/MAX_TOKENS/SAFETY/PROHIBITED_CONTENT 等真实值。
-// **绝不能据 UNSPECIFIED 发 finish 事件或结束流**：首帧就命中会立即截断（血泪教训）。
-// 只有 finishReason 非空且 != FINISH_REASON_UNSPECIFIED 才主动结束流（否则上游不及时关连接
-// 会挂死到 180s 超时）。
+// 匿名端点增量帧默认携带 finishReason="FINISH_REASON_UNSPECIFIED"，
+// 真实结束时返回 STOP/MAX_TOKENS/SAFETY 等枚举值。
+// 忽略 UNSPECIFIED，仅在收到明确终止原因时结束流。
 const finishReasonUnspecified = "FINISH_REASON_UNSPECIFIED"
 
 // blockReasonUnspecified is the protobuf default and does not indicate a real safety block.
@@ -289,8 +287,8 @@ retryLoop:
 			sess = newSess
 			recaptchaToken = ""
 
-			// 429 禁止避让，立刻重试，力大砖飞！
-			log.Printf("[Vertex] [StreamChat] (Attempt %d/%d) 节点 %s 触发 429，禁止避让立刻重试，力大砖飞！请求ID=%s, 代理=%s", attempt, attemptDenom, model, reqID, nodes.GetNodeName(proxyURI))
+			// 429 触发后立即更换 session 与 token 重试
+			log.Printf("[Vertex] [StreamChat] (Attempt %d/%d) 节点 %s 触发 429，立即重试，请求ID=%s, 代理=%s", attempt, attemptDenom, model, reqID, nodes.GetNodeName(proxyURI))
 			attempt++
 
 		case ve != nil:
@@ -336,7 +334,7 @@ func (c *VertexAIClient) executeStreamingAttempt(ctx context.Context, sess *tran
 	reqID := RequestIDFromContext(ctx)
 	log.Printf("[Vertex] [executeStreamingAttempt] 准备发送流式请求: 模型=%s, 请求ID=%s, 代理=%s", model, reqID, nodes.GetNodeName(sess.ProxyURI))
 	cfg := c.cfg
-	newBody := buildRequestPayload(model, geminiPayload, recaptchaToken, cfg)
+	newBody := buildRequestPayload(model, geminiPayload, recaptchaToken)
 	// 上游请求 payload 序列化到 spool 缓冲（大媒体自动落盘）。流式：请求体在 DoStream 发送期被读取，
 	// 缓冲存活到本函数返回（整个流消费完）后由 defer Close 删除临时文件。
 	buf, err := spool.EncodeJSON(newBody)
@@ -998,7 +996,10 @@ func cleanPart(part map[string]any) map[string]any {
 		}
 	}
 
-	// 如果只剩 thought/thoughtSignature 等非内容标记，返回 nil
+	if s, ok := cleaned["thought"].(string); ok && strings.TrimSpace(s) != "" {
+		return cleaned
+	}
+	// 如果只剩空的 thought/thoughtSignature 等非内容标记，返回 nil
 	for k := range cleaned {
 		switch k {
 		case "thought", "thoughtSignature":

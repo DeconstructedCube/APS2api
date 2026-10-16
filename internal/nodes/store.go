@@ -767,26 +767,6 @@ func GetNodeHost(rawURI string) string {
 	return rawURI
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func maxInt64(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 func RecordTest(uri string, ok bool, ms float64, errStr string) {
 	mu.Lock()
@@ -822,8 +802,8 @@ func RecordTest(uri string, ok bool, ms float64, errStr string) {
 		h.ConsecutiveFailures++
 		now := time.Now().Unix()
 		h.LastFailAt = now
-		failures := maxInt(1, h.ConsecutiveFailures)
-		cooldown := minInt(1800, 30*(1<<minInt(failures-1, 6)))
+		failures := max(1, h.ConsecutiveFailures)
+		cooldown := min(1800, 30*(1<<min(failures-1, 6)))
 		h.CooldownUntil = now + int64(cooldown)
 		// 运行时网络失败只影响健康层级和冷却。Disabled 仅由管理页显式操作，
 		// 避免一次临时拨号错误在数据库中留下永久禁用状态。
@@ -948,7 +928,7 @@ func SelectForParallel(k int, topK int, debugMode bool, stickyBonusEnabled bool)
 	}
 	// topK 限制每轮可参与轮询的候选池；不能小于本轮实际需求，
 	// 否则配置较小时会无故减少并发候选数量。
-	candidateLimit := maxInt(k, topK)
+	candidateLimit := max(k, topK)
 	if len(tier1) > candidateLimit {
 		tier1 = tier1[:candidateLimit]
 		tier2 = nil
@@ -1004,7 +984,7 @@ func SelectForParallel(k int, topK int, debugMode bool, stickyBonusEnabled bool)
 		pickFromTier(tier2, true)
 	}
 
-	// 第二轮：若不同 IP 数量不足 k，解除 IP 去重限制，力大砖飞填满并发池！
+	// 第二轮：若独立 IP 候选数不足 k，解除 IP 去重限制补充候选
 	if len(selected) < k {
 		pickFromTier(tier1, false)
 	}

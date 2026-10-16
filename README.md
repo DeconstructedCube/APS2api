@@ -1,64 +1,67 @@
-# Agent Platform Studio 2api
+# aps2api
 
-免费使用 Google Gemini 模型的 2api 工具。将 **OpenAI 兼容的 API 请求**无缝转换为对 Google 匿名端点的调用——让你的客户端以为在调用 OpenAI，实际上使用的是免费的 Gemini 服务。也支持原始Gemini格式
+aps2api 是一个 Google Gemini API 反向代理服务，将客户端的标准 Gemini 请求转发至上游端点，并提供并发竞速与代理节点管理。
 
-**免安装、解压即用的绿色软件。** 全面支持 Windows、Linux、macOS 以及 Android 手机等平台。
+## 特性
 
-## ✨ 核心特性
+- 仅暴露官方 `/v1beta` 端点，透传原生 JSON 与 SSE 流式增量。
+- 基于滑动窗口的并发竞速（RunRace），首包胜出后取消其他候选，超时或 429 自动轮换。
+- 内嵌 Mihomo 节点池，支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2 等协议。
+- 内置 Web 控制台，管理 API 密钥、节点、订阅及系统参数。
 
-- **完整兼容 OpenAI 接口**：支持聊天（流式/非流式）、工具调用（Function Calling）、多模态输入（图片/文件）。
-- **丰富的多媒体支持**：支持文生图、图片编辑、语音合成（TTS）。
-- **内置反爬突破**：内置 TLS 指纹伪装及 reCAPTCHA token 自动获取，轻松通过 Google 匿名端点校验。
-- **内置 2api 节点池**：内嵌 mihomo 内核，支持批量导入订阅和节点，提供并发竞速功能，有效应对429
-- **可视化管理面板**：提供精美的 Web 后台，无需修改 JSON 文件，在浏览器中即可轻松管理 API 密钥、模型别名、2api 节点和系统设置。
-- **高级功能**：支持 Token 计数、Gemini 原生端点透传、假流式输出等。
+## 运行
 
-## 🚀 三步上手
+```sh
+# Linux / macOS / Android (Termux)
+./start.sh
 
-**1. 下载解压**：下载对应平台的压缩包并解压到任意位置。
-
-**2. 一键启动**：
-- **Windows**：双击运行 `启动.bat`
-- **Linux/macOS**：终端执行 `sh start.sh`
-- **Android (Termux)**：终端执行 `sh start.sh`
-
-**3. 配置密钥**：
-首次启动时控制台会输出**管理员密码**。使用浏览器访问 `http://127.0.0.1:2156/admin/` 登录管理面板。
-进入左侧「密钥」菜单，添加一个自定义的 API Key（如 `sk-mykey123`），必须以 `sk-` 开头，或点击“✨”按钮随机生成。
-
-> **如何使用？**
-> 在你的客户端（如 Cherry Studio、ChatBox 等）中，将 API Key 填为刚才设置的 `sk-...`，API 地址填为 `http://127.0.0.1:2156/v1` 即可开始使用！
-
-**完整的分平台部署教程**（包括开机自启、2api 配置、手机部署、常见问题解答）见 **[部署指南](部署指南.md)**。
-
-## 🛠 自己编译（可选）
-
-如果你想从源码自行编译：
-
-```bash
-go build -o agent-platform-studio-2api ./cmd/aps-2api
-go build -o agent-platform-studio-2api.exe ./cmd/aps-2api
+# Windows
+启动.bat
 ```
 
-交叉编译示例（例如在 macOS/Windows 上编译 Linux 适用版本）：
-```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o agent-platform-studio-2api ./cmd/aps-2api
+首次运行会在标准错误输出打印随机生成的管理员密码。
+
+Web 控制台地址：`http://127.0.0.1:2156/admin/`
+
+## 客户端配置
+
+在支持 Google Gemini API 的客户端或 SDK 中配置：
+
+- Base URL: `http://127.0.0.1:2156`
+- API Key: `sk-...`（在 Web 控制台的密钥管理中添加）
+
+### 支持端点
+
+- `GET  /v1beta/models`
+- `GET  /v1beta/models/{model}`
+- `POST /v1beta/models/{model}:generateContent`
+- `POST /v1beta/models/{model}:streamGenerateContent`
+
+## 编译
+
+环境依赖：Go 1.22+；修改前端需要 Bun。
+
+```sh
+# 前端构建（可选，仓库已包含内置静态资源）
+cd web && bun install && bun run build && cd ..
+
+# 二进制编译
+go build -trimpath -ldflags="-s -w" -o aps2api ./cmd/vproxy
 ```
 
-## ⚙️ 配置说明
+## 配置
 
-强烈建议直接使用**管理面板**的「设置」页进行配置修改，所有修改即时生效，无需重启。
-如果需要手动修改，配置文件路径为 `config/config.json`：
+配置文件路径为 `config/config.json`，支持运行时热重载。
 
-| 选项 | 默认值 | 说明 |
-|------|------|------|
-| `port_api` | 2156 | 服务监听端口 |
-| `admin_password` | 自动生成 | 管理面板登录密码 |
-| `max_retries` | 10 | 请求失败重试次数 |
-| `2api_url` | 空 | 全局入口 2api；业务节点启用时作为第一跳，否则单独出站 |
-| `2api_url_candidates` | `[]` | 由管理页维护的入口 2api 候选、测速结果和显示名称 |
-| `parallel_pool_enabled` | true | 是否开启并发竞速节点池 |
-
-> **提示**：在模型名（如 `gemini-3.5-flash`）前加上 `fake-` 或 `假流式-` 前缀，可将非流式模型伪装成流式输出。
-
-详细配置说明请参阅 [部署指南](部署指南.md#配置怎么改)。
+| 字段 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `port_api` | int | `2156` | 服务监听端口 |
+| `admin_password` | string | 自动生成 | Web 控制台密码 |
+| `max_retries` | int | `1` | 候选轮换重试预算 |
+| `parallel_pool_enabled` | bool | `true` | 是否启用并发竞速 |
+| `parallel_pool_size` | int | `15` | 滑动窗口并发数 |
+| `race_timeout` | int | `60` | 单节点首包等待超时（秒） |
+| `stream_idle_timeout_seconds` | int | `20` | 流式包间超时（秒） |
+| `request_timeout` | int | `180` | 会话超时（秒） |
+| `max_request_mb` | int | `128` | 最大请求体限制（MB） |
+| `max_spill_mb` | int | `32` | 内存缓冲溢出阈值（MB） |

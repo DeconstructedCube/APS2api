@@ -3,14 +3,12 @@ package strutil
 import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
 )
 
 var (
-	camelRe    = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 	reqCounter uint64
 )
 
@@ -57,28 +55,3 @@ func FirstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// SnakeToCamel 将 snake_case 转为 camelCase。
-func SnakeToCamel(s string) string {
-	if !strings.Contains(s, "_") {
-		return s
-	}
-	parts := strings.Split(s, "_")
-	var b strings.Builder
-	b.WriteString(parts[0])
-	for _, p := range parts[1:] {
-		b.WriteString(pyTitle(p))
-	}
-	return b.String()
-}
-
-// CamelToSnake 将 camelCase 转为 snake_case。
-func CamelToSnake(s string) string {
-	return strings.ToLower(camelRe.ReplaceAllString(s, "${1}_${2}"))
-}
-
-func pyTitle(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
-}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"AnonymousVertex/internal/config"
 )
 
 // batchGraphql 请求的固定包壳常量（逐字节对齐 PoC body.json / vertex_client）。
@@ -51,7 +50,7 @@ func randomUUID() string {
 // buildRequestPayload 构建发往上游的完整请求体：
 // 纯原生零干涉直通，客户端发送的原生 Gemini payload 原封不动放入 variables，
 // 仅注入 model, region=global, recaptchaToken，绝对不截断参数或伪造回合。
-func buildRequestPayload(model string, geminiPayload map[string]any, recaptchaToken string, _ config.ConfigProvider) map[string]any {
+func buildRequestPayload(model string, geminiPayload map[string]any, recaptchaToken string) map[string]any {
 	vars := make(map[string]any, len(geminiPayload)+3)
 	for k, v := range geminiPayload {
 		vars[k] = v

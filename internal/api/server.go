@@ -138,7 +138,7 @@ func (s *Server) handleBuildMeta(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleModelsGemini(w http.ResponseWriter, _ *http.Request) {
-	models := s.mw.cfg.ModelsWithFakeVariants()
+	models := s.mw.cfg.BaseModels()
 	data := make([]any, 0, len(models))
 	for _, m := range models {
 		data = append(data, geminiModelInfo(m))

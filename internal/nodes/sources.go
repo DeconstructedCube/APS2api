@@ -409,8 +409,7 @@ func canonicalNodeKey(rawURI string) string {
 			query = body[idx:]
 			body = body[:idx]
 		}
-		encoded := strings.ReplaceAll(strings.ReplaceAll(body, "-", "+"), "_", "/")
-		if decoded, err := base64.StdEncoding.DecodeString(strutil.PadBase64(encoded)); err == nil {
+		if decoded, err := base64.StdEncoding.DecodeString(strutil.PadBase64(body)); err == nil {
 			var payload map[string]any
 			if json.Unmarshal(decoded, &payload) == nil {
 				delete(payload, "ps")

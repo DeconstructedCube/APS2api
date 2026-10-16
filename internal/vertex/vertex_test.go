@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"AnonymousVertex/internal/config"
 )
 
 func TestParseErrorResponse(t *testing.T) {
@@ -126,11 +125,10 @@ func TestRaiseForStatus(t *testing.T) {
 }
 
 func TestBuildRequestPayload(t *testing.T) {
-	cfg := config.StaticProvider(config.DefaultConfig())
 	payload := map[string]any{"contents": []any{
 		map[string]any{"role": "user", "parts": []any{map[string]any{"text": "hi"}}},
 	}}
-	body := buildRequestPayload("gemini-3.1-flash", payload, "TOKEN123", cfg)
+	body := buildRequestPayload("gemini-3.1-flash", payload, "TOKEN123")
 	if body["querySignature"] != querySignature {
 		t.Error("querySignature 不匹配")
 	}

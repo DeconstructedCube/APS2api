@@ -2,14 +2,10 @@ package vertex
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"log"
 	"math"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"AnonymousVertex/internal/config"
@@ -87,83 +83,6 @@ func (c *VertexAIClient) getBatchGraphqlURL() string {
 	return anonBaseURL + batchGraphqlPath + "?key=" + key + "&prettyPrint=false"
 }
 
-const largePayloadThreshold = 1 << 20 // 1MB
-
-func (c *VertexAIClient) CompleteChatN(ctx context.Context, model string, geminiPayload map[string]any, n int) ([]map[string]any, error) {
-	return c.completeChatNWithRoute(c.prepareRequest(ctx), model, geminiPayload, n)
-}
-
-func (c *VertexAIClient) completeChatNWithRoute(ctx context.Context, model string, geminiPayload map[string]any, n int) ([]map[string]any, error) {
-	if n > 1 {
-		if b, err := json.Marshal(geminiPayload); err == nil && len(b) > largePayloadThreshold {
-			log.Printf("[Vertex] [CompleteChatN] 大 payload (%d bytes) 降级为串行", len(b))
-			return c.completeChatNSerialWithRoute(ctx, model, geminiPayload, n)
-		}
-	}
-
-	type res struct {
-		resp map[string]any
-		err  error
-	}
-	results := make([]res, n)
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func(idx int) {
-			defer wg.Done()
-			defer func() {
-				if rec := recover(); rec != nil {
-					results[idx] = res{err: NewInternalError(fmt.Sprintf("candidate panic: %v", rec))} //nolint:exhaustruct
-				}
-			}()
-			r, err := c.completeChatWithRoute(ctx, model, geminiPayload)
-			results[idx] = res{resp: r, err: err}
-		}(i)
-	}
-	wg.Wait()
-
-	var ok []map[string]any
-	var firstErr error
-	for _, r := range results {
-		if r.err != nil {
-			if firstErr == nil {
-				firstErr = r.err
-			}
-			continue
-		}
-		ok = append(ok, r.resp)
-	}
-	if len(ok) == 0 {
-		if firstErr == nil {
-			firstErr = NewInternalError("All candidates failed")
-		}
-		return nil, firstErr
-	}
-	return ok, nil
-}
-
-func (c *VertexAIClient) completeChatNSerialWithRoute(ctx context.Context, model string, geminiPayload map[string]any, n int) ([]map[string]any, error) {
-	var ok []map[string]any
-	var firstErr error
-	for i := 0; i < n; i++ {
-		r, err := c.completeChatWithRoute(ctx, model, geminiPayload)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		ok = append(ok, r)
-	}
-	if len(ok) == 0 {
-		if firstErr == nil {
-			firstErr = NewInternalError("All candidates failed")
-		}
-		return nil, firstErr
-	}
-	return ok, nil
-}
-
 type candidateCollector struct {
 	index             int
 	parts             []map[string]any
@@ -189,7 +108,7 @@ func (c *VertexAIClient) buildCompleteResponse(r *ParseResult) (map[string]any, 
 	case len(r.Parts) > 0:
 		resp["candidates"] = []any{buildCandidate(r.CandidateIndex, r.Parts, r)}
 	case len(r.PromptFeedback) > 0:
-		resp["candidates"] = []any{buildCandidate(r.CandidateIndex, []map[string]any{{"text": " "}}, r)}
+		resp["candidates"] = []any{}
 	default:
 		return nil, NewEmptyResponseError("Upstream returned empty response (no content)")
 	}

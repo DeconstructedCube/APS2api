@@ -121,7 +121,6 @@ func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *htt
 	sw := newSSEWriter(w, "text/event-stream")
 
 	gotChunk := false
-	hasFinish := false
 	streamErrWritten := false
 	g.vc.StreamChat(r.Context(), actualModel, body, func(ch vertex.StreamChunk) bool {
 		if ch.Err != nil {
@@ -145,9 +144,7 @@ func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *htt
 			return false
 		}
 		gotChunk = true
-		if fr := cleanGeminiFinishReason(ch.Data); fr != "" {
-			hasFinish = true
-		}
+		cleanGeminiFinishReason(ch.Data)
 		return sw.write(g.geminiSSE(ch.Data))
 	})
 
@@ -167,15 +164,6 @@ func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *htt
 			}))
 		}
 		return
-	}
-	if !hasFinish {
-		_ = sw.write(g.geminiSSE(map[string]any{
-			"candidates": []any{map[string]any{
-				"content":      map[string]any{"parts": []any{}, "role": "model"},
-				"finishReason": "STOP",
-				"index":        0,
-			}},
-		}))
 	}
 }
 

@@ -31,7 +31,6 @@ type AppConfig struct { //nolint:govet
 	ProxyURL                  string            `json:"proxy_url"`
 	SafetySettings            map[string]string `json:"safety_settings"`
 	VertexAPIKey              string            `json:"vertex_api_key"`
-	MaxN                      int               `json:"max_n"`
 	MaxSpillMB                int               `json:"max_spill_mb"`
 	MaxRequestMB              int               `json:"max_request_mb"`
 	RequestTimeout            int               `json:"request_timeout"`
@@ -47,8 +46,6 @@ type AppConfig struct { //nolint:govet
 	DebugPprof                         bool   `json:"debug_pprof"`
 	ParallelNodeTopK                   int    `json:"parallel_node_top_k"`
 	DebugMode                          bool   `json:"debug_mode"`
-	ParallelPoolDelayDynamic           bool   `json:"parallel_pool_delay_dynamic"`
-	ParallelPoolDelayMs                int    `json:"parallel_pool_delay_ms"`
 	EntryProxyProbeEnabled             bool   `json:"entry_proxy_probe_enabled"`
 	EntryProxyProbeIntervalSeconds     int    `json:"entry_proxy_probe_interval_seconds"`
 	EntryProxyProbeCooldownSeconds     int    `json:"entry_proxy_probe_cooldown_seconds"`
@@ -63,7 +60,6 @@ func DefaultConfig() AppConfig {
 		PortAPI:                            2156,
 		MaxRetries:                         1, // 默认为 1 次
 		VertexAPIKey:                       defaultAnonAPIKey,
-		MaxN:                               8,
 		MaxSpillMB:                         32,
 		MaxRequestMB:                       128,
 		RequestTimeout:                     180,
@@ -73,8 +69,6 @@ func DefaultConfig() AppConfig {
 		StickyNodePriority:                 false,
 		ParallelPoolSize:                   15, // 默认为 15 并发
 		ParallelNodeTopK:                   80,
-		ParallelPoolDelayDynamic:           false, // 建议默认关闭动态对冲，改为稳定的秒级接力
-		ParallelPoolDelayMs:                2500,  // 固定对冲间隔设为 2500ms（2.5秒），单节点撞墙后触发接力
 		EntryProxyProbeEnabled:             false, // 周期拨测默认关闭，避免后台自动产生入口代理流量
 		EntryProxyProbeIntervalSeconds:     DefaultEntryProxyProbeIntervalSeconds,
 		EntryProxyProbeCooldownSeconds:     DefaultEntryProxyProbeCooldownSeconds,
