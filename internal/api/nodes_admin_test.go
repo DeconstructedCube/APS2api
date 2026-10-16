@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/nodes"
+	"AnonymousVertex/internal/transport"
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/constant/features"
 )

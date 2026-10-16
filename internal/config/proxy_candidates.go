@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/db"
+	"AnonymousVertex/internal/db"
 )
 
 type ProxyCandidate struct {

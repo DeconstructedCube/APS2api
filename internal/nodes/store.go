@@ -15,7 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/db"
+	"AnonymousVertex/internal/db"
+	"AnonymousVertex/internal/strutil"
 )
 
 type Node struct {
@@ -697,13 +698,6 @@ func EnableNode(uri string) bool {
 	return found
 }
 
-func padB64(s string) string {
-	s = strings.ReplaceAll(strings.ReplaceAll(s, "-", "+"), "_", "/")
-	if pad := len(s) % 4; pad != 0 {
-		s += strings.Repeat("=", 4-pad)
-	}
-	return s
-}
 
 func parseNodeIdentity(rawURI string) (scheme, userinfo, host string, port int, ok bool) {
 	if strings.HasPrefix(rawURI, "vmess://") {
@@ -714,7 +708,7 @@ func parseNodeIdentity(rawURI string) (scheme, userinfo, host string, port int, 
 		if idx := strings.Index(b64Str, "#"); idx != -1 {
 			b64Str = b64Str[:idx]
 		}
-		b64Str = padB64(b64Str)
+		b64Str = strutil.PadBase64(b64Str)
 		if b, err := base64.StdEncoding.DecodeString(b64Str); err == nil {
 			var d map[string]any
 			if err := json.Unmarshal(b, &d); err == nil {
@@ -733,7 +727,7 @@ func parseNodeIdentity(rawURI string) (scheme, userinfo, host string, port int, 
 			body = body[:idx]
 		}
 		if idx := strings.Index(body, "@"); idx != -1 {
-			b, err := base64.StdEncoding.DecodeString(padB64(body[:idx]))
+			b, err := base64.StdEncoding.DecodeString(strutil.PadBase64(body[:idx]))
 			if err == nil {
 				parts := strings.SplitN(string(b), ":", 2)
 				if len(parts) >= 2 {
@@ -762,6 +756,15 @@ func parseNodeIdentity(rawURI string) (scheme, userinfo, host string, port int, 
 		port = 443
 	}
 	return scheme, userinfo, host, port, true
+}
+
+// GetNodeHost 提取节点的出口 Host (IP/域名)，用于按 IP 与时间分发抢额
+func GetNodeHost(rawURI string) string {
+	_, _, host, _, ok := parseNodeIdentity(rawURI)
+	if ok && host != "" {
+		return host
+	}
+	return rawURI
 }
 
 func minInt(a, b int) int {
@@ -847,8 +850,13 @@ func RecordRateLimit(uri string, cooldownSec int) {
 		healthMap[uri] = h
 	}
 	now := time.Now().Unix()
-	h.CooldownUntil = now + int64(cooldownSec)
-	h.LastSubHealthyAt = now
+	if cooldownSec <= 0 {
+		h.CooldownUntil = 0
+		h.LastSubHealthyAt = 0
+	} else {
+		h.CooldownUntil = now + int64(cooldownSec)
+		h.LastSubHealthyAt = now
+	}
 	h.Last429At = now
 	h.RateLimitCount++
 	h.LastTestError = "429 Rate Limit"
@@ -956,38 +964,53 @@ func SelectForParallel(k int, topK int, debugMode bool, stickyBonusEnabled bool)
 	}
 
 	var selected []Node
-	i := 0
-	for i < len(tier1) && len(selected) < k {
-		j := i
-		for j < len(tier1) && samePriorityGroup(tier1[i], tier1[j]) {
-			j++
-		}
-		group := tier1[i:j]
-		offset := int(atomic.AddUint64(&atomicRoundRobinIndex, 1)) % len(group)
-		for l := 0; l < len(group) && len(selected) < k; l++ {
-			idx := (offset + l) % len(group)
-			selected = append(selected, group[idx].node)
-		}
-		i = j
-	}
+	usedHosts := make(map[string]bool)
 
-	if len(selected) < k {
+	pickFromTier := func(candidates []tierCandidate, preferUniqueHost bool) {
 		i := 0
-		for i < len(tier2) && len(selected) < k {
+		for i < len(candidates) && len(selected) < k {
 			j := i
-			for j < len(tier2) && samePriorityGroup(tier2[i], tier2[j]) {
+			for j < len(candidates) && samePriorityGroup(candidates[i], candidates[j]) {
 				j++
 			}
-			group := tier2[i:j]
+			group := candidates[i:j]
 			offset := int(atomic.AddUint64(&atomicRoundRobinIndex, 1)) % len(group)
 			for l := 0; l < len(group) && len(selected) < k; l++ {
 				idx := (offset + l) % len(group)
-				selected = append(selected, group[idx].node)
+				cand := group[idx].node
+				host := GetNodeHost(cand.RawURI)
+				if preferUniqueHost && usedHosts[host] {
+					continue
+				}
+				already := false
+				for _, s := range selected {
+					if s.RawURI == cand.RawURI {
+						already = true
+						break
+					}
+				}
+				if !already {
+					selected = append(selected, cand)
+					usedHosts[host] = true
+				}
 			}
 			i = j
 		}
 	}
 
+	// 第一轮：看 IP 根据时间分发，优先挑选不同 Host/IP 的节点，分散抢占全局匿名限额
+	pickFromTier(tier1, true)
+	if len(selected) < k {
+		pickFromTier(tier2, true)
+	}
+
+	// 第二轮：若不同 IP 数量不足 k，解除 IP 去重限制，力大砖飞填满并发池！
+	if len(selected) < k {
+		pickFromTier(tier1, false)
+	}
+	if len(selected) < k {
+		pickFromTier(tier2, false)
+	}
 	for _, s := range selected {
 		if h := healthMap[s.RawURI]; h != nil {
 			h.LastSelectedAt = now

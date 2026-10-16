@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/db"
+	"AnonymousVertex/internal/db"
 )
 
 func setupEntryProxyTest(t *testing.T, configJSON string) ConfigProvider {

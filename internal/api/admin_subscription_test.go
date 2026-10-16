@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
+	"AnonymousVertex/internal/config"
 )
 
 func TestFetchSubWithFallbackDeduplicatesUserAgents(t *testing.T) {

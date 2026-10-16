@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
+	"AnonymousVertex/internal/config"
 )
 
 func TestAdminModelsV2RoundTrip(t *testing.T) {
@@ -26,7 +26,7 @@ func TestAdminModelsV2RoundTrip(t *testing.T) {
 	}
 
 	entry, ok := config.LookupModel("custom-model")
-	if !ok || entry.Enabled || entry.FakeStreamEnabled || !entry.TrailingFixEnabled {
+	if !ok || entry.Enabled || !entry.TrailingFixEnabled {
 		t.Fatalf("保存后的模型状态错误: %+v, ok=%v", entry, ok)
 	}
 	if config.ResolveModelName("custom") != "custom-model" {
@@ -64,7 +64,7 @@ func TestAdminModelsAcceptsLegacyStringList(t *testing.T) {
 		t.Fatalf("PUT legacy status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	entry, ok := config.LookupModel("legacy-model")
-	if !ok || !entry.Enabled || !entry.FakeStreamEnabled {
+	if !ok || !entry.Enabled {
 		t.Fatalf("legacy 模型默认状态错误: %+v, ok=%v", entry, ok)
 	}
 	gemini36, ok := config.LookupModel("gemini-3.6-flash")

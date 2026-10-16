@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/nodes"
 )
 
 var (

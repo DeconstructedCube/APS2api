@@ -1,19 +1,15 @@
 package api
 
 import (
-	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/admin"
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/subscriptions"
+	"AnonymousVertex/internal/admin"
+	"AnonymousVertex/internal/subscriptions"
 )
 
 type AdminHandler struct {
@@ -256,19 +252,6 @@ func (adm *AdminHandler) handleAdminAPI(w http.ResponseWriter, r *http.Request) 
 			adm.adminMethodNotAllowed(w)
 		}
 		return
-	case "/upload-bg":
-		adm.adminUploadBg(w, r)
-		return
-	case "/delete-bg":
-		adm.adminDeleteBg(w, r)
-		return
-	case "/list-bgs":
-		if r.Method != http.MethodGet {
-			adm.adminMethodNotAllowed(w)
-			return
-		}
-		adm.adminListBgs(w, r)
-		return
 	}
 
 	switch path {
@@ -329,11 +312,18 @@ func (adm *AdminHandler) handleAdminPage(w http.ResponseWriter, r *http.Request)
 	}
 	name := strings.TrimPrefix(r.URL.Path, "/admin/")
 	if name == "" {
-		name = "admin.html"
+		name = "index.html"
 	}
 	data, err := fs.ReadFile(admin.Assets, "assets/"+name)
+	if err != nil && (name == "admin.html" || name == "index.html") {
+		alt := "index.html"
+		if name == "index.html" {
+			alt = "admin.html"
+		}
+		data, err = fs.ReadFile(admin.Assets, "assets/"+alt)
+	}
 	if err != nil {
-		oaiError(w, http.StatusNotFound, "not found", "invalid_request_error")
+		apiError(w, http.StatusNotFound, "not found", "NOT_FOUND")
 		return
 	}
 	w.Header().Set("Content-Type", contentTypeFor(name))
@@ -358,99 +348,6 @@ func contentTypeFor(name string) string {
 	default:
 		return "application/octet-stream"
 	}
-}
-
-func (adm *AdminHandler) adminUploadBg(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		adm.adminMethodNotAllowed(w)
-		return
-	}
-
-	err := r.ParseMultipartForm(10 << 20)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, adminErr("解析上传文件失败 (parse error)"))
-		return
-	}
-
-	file, _, err := r.FormFile("file")
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, adminErr("未找到文件字段 (missing file)"))
-		return
-	}
-	defer file.Close()
-
-	assetsDir := filepath.Join(filepath.Dir(adm.cfg.ConfigDir()), "assets")
-	_ = os.MkdirAll(assetsDir, 0o755)
-
-	filename := fmt.Sprintf("background%d.jpg", time.Now().UnixMilli())
-	targetPath := filepath.Join(assetsDir, filename)
-
-	out, err := os.Create(targetPath)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, adminErr("无法保存文件 (create error)"))
-		return
-	}
-	defer out.Close()
-
-	if _, err = io.Copy(out, file); err != nil {
-		writeJSON(w, http.StatusInternalServerError, adminErr("保存文件失败 (copy error)"))
-		return
-	}
-
-	bgURL := "url('/assets/" + filename + "')"
-	err = config.WriteSettings(map[string]any{"background_image": bgURL})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, adminErr("更新配置失败 (save config error)"))
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": bgURL})
-}
-
-func (adm *AdminHandler) adminDeleteBg(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
-		adm.adminMethodNotAllowed(w)
-		return
-	}
-	var body struct {
-		Filename string `json:"filename"`
-	}
-	if !adm.decodeAdminBody(w, r, &body) {
-		return
-	}
-	if body.Filename == "" || strings.Contains(body.Filename, "/") || strings.Contains(body.Filename, "\\") {
-		writeJSON(w, http.StatusBadRequest, adminErr("文件名无效"))
-		return
-	}
-	if !strings.HasPrefix(body.Filename, "background") {
-		writeJSON(w, http.StatusForbidden, adminErr("无权删除该文件"))
-		return
-	}
-
-	assetsDir := filepath.Join(filepath.Dir(adm.cfg.ConfigDir()), "assets")
-	targetPath := filepath.Join(assetsDir, body.Filename)
-	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
-		writeJSON(w, http.StatusInternalServerError, adminErr("删除文件失败"))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (adm *AdminHandler) adminListBgs(w http.ResponseWriter, r *http.Request) {
-	assetsDir := filepath.Join(filepath.Dir(adm.cfg.ConfigDir()), "assets")
-	files, err := os.ReadDir(assetsDir)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "files": []string{}})
-		return
-	}
-
-	var bgs []string
-	for _, f := range files {
-		if !f.IsDir() && strings.HasPrefix(f.Name(), "background") {
-			bgs = append(bgs, f.Name())
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "files": bgs})
 }
 
 func (adm *AdminHandler) adminGetLog(w http.ResponseWriter, r *http.Request) {

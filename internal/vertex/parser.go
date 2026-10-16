@@ -1,7 +1,7 @@
 package vertex
 
 import (
-	"github.com/bsfdsagfadg/vertex/internal/jsonx"
+	"AnonymousVertex/internal/jsonx"
 )
 
 // ParseResult 是 batchGraphql 响应的解析结果（解析状态）。

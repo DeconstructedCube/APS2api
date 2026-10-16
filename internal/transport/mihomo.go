@@ -13,8 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
+	"AnonymousVertex/internal/config"
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/component/proxydialer"
 	"github.com/metacubex/mihomo/constant"
@@ -401,15 +400,15 @@ func cleanupIdleProxies(maxIdle time.Duration) {
 }
 
 func proxyDisplayName(uri string) string {
-	if name := nodes.GetNodeName(uri); name != "Unknown" {
-		return name
-	}
 	for _, candidate := range config.ListProxyCandidates() {
 		if proxyIdentity(candidate.RawURI) == proxyIdentity(uri) && strings.TrimSpace(candidate.Name) != "" {
 			return candidate.Name
 		}
 	}
-	return "Unknown"
+	if idx := strings.Index(uri, "#"); idx != -1 {
+		return uri[idx+1:]
+	}
+	return proxyIdentity(uri)
 }
 
 // StopAllProxies 程序优雅退出时清理全部实例

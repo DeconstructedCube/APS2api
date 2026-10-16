@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
+	"AnonymousVertex/internal/config"
 )
 
 func TestParseErrorResponse(t *testing.T) {

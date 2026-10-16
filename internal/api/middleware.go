@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/cli"
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
-	"github.com/bsfdsagfadg/vertex/internal/vertex"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/transport"
+	"AnonymousVertex/internal/vertex"
 )
 
 type middleware struct {
@@ -51,7 +50,7 @@ func (m *middleware) withRecover(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("[Server] panic recovered: %v\n%s", rec, debug.Stack())
-				oaiError(w, http.StatusInternalServerError, "服务内部错误，请联系开发者 (internal error)", "server_error")
+				apiError(w, http.StatusInternalServerError, "服务内部错误，请联系开发者 (internal error)", "INTERNAL")
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -96,8 +95,6 @@ func (m *middleware) withMetrics(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Request-Id", reqID)
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		cli.StartReq(reqID)
-		defer cli.FinishReq(reqID)
 		start := time.Now()
 		next.ServeHTTP(sw, r.WithContext(ctx))
 		elapsed := time.Since(start)
@@ -129,12 +126,8 @@ func (m *middleware) withAPIKey(next http.Handler) http.Handler {
 	})
 }
 
-func writeAuthError(w http.ResponseWriter, r *http.Request, message string) {
-	if strings.HasPrefix(r.URL.Path, "/v1beta") || strings.HasPrefix(r.URL.Path, "/v1alpha") {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"code": 401, "message": message, "status": "UNAUTHENTICATED"}})
-		return
-	}
-	writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"type": "invalid_request_error", "code": "invalid_api_key", "message": message}})
+func writeAuthError(w http.ResponseWriter, _ *http.Request, message string) {
+	writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"code": 401, "message": message, "status": "UNAUTHENTICATED"}})
 }
 
 func isAdminPath(path string) bool {

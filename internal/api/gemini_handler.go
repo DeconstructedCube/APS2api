@@ -1,18 +1,13 @@
 package api
 
 import (
-	"context"
-	"crypto/rand"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
-	"github.com/bsfdsagfadg/vertex/internal/cli"
-	"github.com/bsfdsagfadg/vertex/internal/jsonx"
-	"github.com/bsfdsagfadg/vertex/internal/transform"
-	"github.com/bsfdsagfadg/vertex/internal/vertex"
+	"AnonymousVertex/internal/jsonx"
+	"AnonymousVertex/internal/vertex"
 )
 
 type GeminiHandler struct {
@@ -57,8 +52,6 @@ func (g *GeminiHandler) handleModelsSubtree(w http.ResponseWriter, r *http.Reque
 		g.requirePost(w, r, func() { g.handleGeminiGenerate(w, r, model) })
 	case "streamGenerateContent":
 		g.requirePost(w, r, func() { g.handleGeminiStreamGenerate(w, r, model) })
-	case "countTokens":
-		g.requirePost(w, r, func() { g.handleCountTokens(w, r, model) })
 	default:
 		g.geminiError(w, http.StatusNotFound, "未知方法 "+method+" (unknown method)", "NOT_FOUND")
 	}
@@ -88,13 +81,13 @@ func (g *GeminiHandler) readGeminiBody(w http.ResponseWriter, r *http.Request) (
 	return body, true
 }
 
+// handleGeminiGenerate 零篡改直通生成
 func (g *GeminiHandler) handleGeminiGenerate(w http.ResponseWriter, r *http.Request, model string) {
-	actualModel, _, modelOK := resolveConfiguredModel(model, g.cfg)
+	actualModel, modelOK := resolveConfiguredModel(model, g.cfg)
 	if !modelOK {
 		geminiModelNotFound(w, model)
 		return
 	}
-	cli.UpdateReqModel(vertex.RequestIDFromContext(r.Context()), actualModel)
 	body, ok := g.readGeminiBody(w, r)
 	if !ok {
 		return
@@ -102,8 +95,6 @@ func (g *GeminiHandler) handleGeminiGenerate(w http.ResponseWriter, r *http.Requ
 	if reqObj, ok2 := body["generateContentRequest"].(map[string]any); ok2 {
 		body = reqObj
 	}
-	transform.ApplyImageConfig(body, body, actualModel)
-	transform.ApplyImageDefaults(body, actualModel, g.cfg.DefaultImageSize(), g.cfg.DefaultResponseModalities())
 	log.Printf("[Server] [GeminiGenerate] 收到请求: 模型=%s, 真模型=%s", model, actualModel)
 
 	resp, vErr := g.vc.CompleteChat(r.Context(), actualModel, body)
@@ -116,20 +107,17 @@ func (g *GeminiHandler) handleGeminiGenerate(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, ve.Code, vertexErrorToGemini(ve))
 		return
 	}
-	transform.EnsureFunctionCallIDs(resp)
 	cleanGeminiFinishReason(resp)
-	rewriteGeminiIDs(resp, generateVPSuffix())
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleGeminiStreamGenerate 纯原生实时流式直通，无聚合延迟、无下游中断隐患
 func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *http.Request, model string) {
-	actualModel, useFake, modelOK := resolveConfiguredModel(model, g.cfg)
+	actualModel, modelOK := resolveConfiguredModel(model, g.cfg)
 	if !modelOK {
 		geminiModelNotFound(w, model)
 		return
 	}
-	requestID := vertex.RequestIDFromContext(r.Context())
-	cli.UpdateReqModel(requestID, actualModel)
 	body, ok := g.readGeminiBody(w, r)
 	if !ok {
 		return
@@ -137,26 +125,14 @@ func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *htt
 	if reqObj, ok2 := body["generateContentRequest"].(map[string]any); ok2 {
 		body = reqObj
 	}
-	transform.ApplyImageConfig(body, body, actualModel)
-	transform.ApplyImageDefaults(body, actualModel, g.cfg.DefaultImageSize(), g.cfg.DefaultResponseModalities())
-	log.Printf("[Server] [GeminiStreamGenerate] 收到请求: 模型=%s, 真模型=%s, 假流式=%v", model, actualModel, useFake)
+	log.Printf("[Server] [GeminiStreamGenerate] 收到流式请求: 模型=%s, 真模型=%s", model, actualModel)
 
 	sw := newSSEWriter(w, "text/event-stream")
-
-	if useFake {
-		g.geminiFakeStream(r.Context(), w, sw, actualModel, body)
-		return
-	}
 
 	gotChunk := false
 	hasFinish := false
 	streamErrWritten := false
-	suffix := generateVPSuffix()
-	toolCallIDAssigner := transform.NewFunctionCallIDAssigner()
 	g.vc.StreamChat(r.Context(), actualModel, body, func(ch vertex.StreamChunk) bool {
-		if !gotChunk && ch.Err == nil {
-			cli.UpdateReqState(requestID, "💬 流式打字", "\033[36m", "正在输出...")
-		}
 		if ch.Err != nil {
 			if !sw.hasWritten() {
 				ve := toVertexError(ch.Err)
@@ -177,12 +153,10 @@ func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *htt
 			streamErrWritten = true
 			return false
 		}
-		toolCallIDAssigner.Ensure(ch.Data)
 		gotChunk = true
 		if fr := cleanGeminiFinishReason(ch.Data); fr != "" {
 			hasFinish = true
 		}
-		rewriteGeminiIDs(ch.Data, suffix)
 		return sw.write(g.geminiSSE(ch.Data))
 	})
 
@@ -214,101 +188,10 @@ func (g *GeminiHandler) handleGeminiStreamGenerate(w http.ResponseWriter, r *htt
 	}
 }
 
-func (g *GeminiHandler) geminiFakeStream(ctx context.Context, w http.ResponseWriter, sw *sseWriter, model string, body map[string]any) {
-	resp, vErr := g.vc.CompleteChat(ctx, model, body)
-	if vErr != nil {
-		ve := toVertexError(vErr)
-		if !sw.hasWritten() {
-			if isSafetyBlock(ve) {
-				writeJSON(w, http.StatusOK, geminiSafetyResponse(ve))
-				return
-			}
-			writeJSON(w, ve.Code, vertexErrorToGemini(ve))
-			return
-		}
-		if isSafetyBlock(ve) {
-			_ = sw.write(g.geminiSSE(geminiSafetyChunk(ve)))
-			return
-		}
-		_ = sw.write(g.geminiSSE(map[string]any{"error": map[string]any{
-			"code": ve.Code, "message": vertex.FriendlyErrorMessage(ve), "status": geminiStatusOf(ve),
-		}}))
-		return
-	}
-	transform.EnsureFunctionCallIDs(resp)
-
-	// Fake streaming must preserve functionCall parts. Returning text only
-	// silently drops tool calls (and their IDs) for models using this mode.
-	if candidates, ok := resp["candidates"].([]any); ok && len(candidates) > 0 {
-		suffix := generateVPSuffix()
-		for candidateIndex, rawCandidate := range candidates {
-			candidate, ok := rawCandidate.(map[string]any)
-			if !ok {
-				continue
-			}
-			content, _ := candidate["content"].(map[string]any)
-			parts, _ := content["parts"].([]any)
-			if len(parts) == 0 {
-				continue
-			}
-			for partIndex, part := range parts {
-				cand := map[string]any{"index": candidateIndex, "content": map[string]any{"role": "model", "parts": []any{part}}}
-				if partIndex == len(parts)-1 {
-					cand["finishReason"] = "STOP"
-				}
-				chunk := map[string]any{"candidates": []any{cand}}
-				rewriteGeminiIDs(chunk, suffix)
-				if !sw.write(g.geminiSSE(chunk)) {
-					return
-				}
-			}
-		}
-		return
-	}
-
-	text := geminiResponseText(resp)
-	chunks := splitIntoRuneChunks(text)
-	for i, piece := range chunks {
-		cand := map[string]any{"index": 0, "content": map[string]any{"role": "model", "parts": []any{map[string]any{"text": piece}}}}
-		if i == len(chunks)-1 {
-			cand["finishReason"] = "STOP"
-		}
-		chunk := map[string]any{"candidates": []any{cand}}
-		if !sw.write(g.geminiSSE(chunk)) {
-			return
-		}
-	}
-}
-func (g *GeminiHandler) handleCountTokens(w http.ResponseWriter, r *http.Request, model string) {
-	actualModel, _, modelOK := resolveConfiguredModel(model, g.cfg)
-	if !modelOK {
-		geminiModelNotFound(w, model)
-		return
-	}
-	cli.UpdateReqModel(vertex.RequestIDFromContext(r.Context()), actualModel)
-	body, ok := g.readGeminiBody(w, r)
-	if !ok {
-		return
-	}
-	log.Printf("[Server] [CountTokens] 收到请求: 模型=%s, 真模型=%s", model, actualModel)
-
-	var contents []any
-	if reqObj, ok2 := body["generateContentRequest"].(map[string]any); ok2 {
-		contents, _ = reqObj["contents"].([]any)
-	} else {
-		contents, _ = body["contents"].([]any)
-	}
-	if contents == nil {
-		contents = []any{}
-	}
-
-	total := g.vc.CountTokens(r.Context(), actualModel, contents)
-	writeJSON(w, http.StatusOK, map[string]any{"totalTokens": total})
-}
 
 func (g *GeminiHandler) handleModelInfo(w http.ResponseWriter, modelName string) {
 	name := strings.TrimPrefix(modelName, "models/")
-	if _, _, ok := resolveConfiguredModel(name, g.cfg); !ok {
+	if _, ok := resolveConfiguredModel(name, g.cfg); !ok {
 		geminiModelNotFound(w, modelName)
 		return
 	}
@@ -405,61 +288,4 @@ func geminiSafetyChunk(e *vertex.VertexError) map[string]any {
 			"blockReasonMessage": e.Message,
 		},
 	}
-}
-
-func geminiResponseText(resp map[string]any) string {
-	var sb strings.Builder
-	cands, _ := resp["candidates"].([]any)
-	for _, cRaw := range cands {
-		c, ok := cRaw.(map[string]any)
-		if !ok {
-			continue
-		}
-		content, ok := c["content"].(map[string]any)
-		if !ok {
-			continue
-		}
-		parts, _ := content["parts"].([]any)
-		for _, pRaw := range parts {
-			p, ok2 := pRaw.(map[string]any)
-			if !ok2 {
-				continue
-			}
-			if isTruthyAny(p["thought"]) {
-				continue
-			}
-			if t, ok3 := p["text"].(string); ok3 {
-				sb.WriteString(t)
-			}
-		}
-	}
-	return sb.String()
-}
-
-func isTruthyAny(v any) bool { return jsonx.Truthy(v) }
-func generateVPSuffix() string {
-	var buf [4]byte
-	_, _ = rand.Read(buf[:])
-	return fmt.Sprintf("-vp%08x", buf)
-}
-
-func rewriteGeminiIDs(val any, suffix string) {
-	switch v := val.(type) {
-	case map[string]any:
-		for k, mv := range v {
-			if s, ok := mv.(string); ok && isGeminiToolCallID(s) {
-				v[k] = s + suffix
-			} else {
-				rewriteGeminiIDs(mv, suffix)
-			}
-		}
-	case []any:
-		for _, item := range v {
-			rewriteGeminiIDs(item, suffix)
-		}
-	}
-}
-
-func isGeminiToolCallID(id string) bool {
-	return strings.HasPrefix(id, "gemini-tool-call-") || strings.HasPrefix(id, "tool_call_")
 }

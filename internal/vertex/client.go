@@ -12,10 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/recaptcha"
-	"github.com/bsfdsagfadg/vertex/internal/transform"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/recaptcha"
+	"AnonymousVertex/internal/transport"
 )
 
 const (
@@ -76,9 +75,6 @@ func NewVertexAIClient(cfg config.ConfigProvider) *VertexAIClient {
 	}
 }
 
-func (c *VertexAIClient) StartTokenPool()                  { c.pool.Start() }
-func (c *VertexAIClient) StopTokenPool()                   { c.pool.Stop() }
-func (c *VertexAIClient) TokenPoolStats() (size, fill int) { return c.pool.Stats() }
 
 func (c *VertexAIClient) getBatchGraphqlURL() string {
 	if !strings.HasPrefix(batchGraphqlURL, anonBaseURL) {
@@ -316,7 +312,7 @@ func collectChunksToParseResult(chunks []map[string]any) *ParseResult {
 	sort.Ints(indices)
 	for _, index := range indices {
 		collector := candidatesMap[index]
-		parts := transform.MergeContentBlocks(collector.parts)
+		parts := mergeAdjacentTextParts(collector.parts)
 		candidate := map[string]any{
 			"index":   index,
 			"content": map[string]any{"parts": toAnySlice(parts), "role": "model"},
@@ -336,7 +332,7 @@ func collectChunksToParseResult(chunks []map[string]any) *ParseResult {
 
 	if len(indices) > 0 {
 		first := candidatesMap[indices[0]]
-		s.Parts = transform.MergeContentBlocks(first.parts)
+		s.Parts = mergeAdjacentTextParts(first.parts)
 		s.FinishReason = first.finishReason
 		s.FinishMessage = first.finishMessage
 		s.SafetyRatings = first.safetyRatings
@@ -348,6 +344,29 @@ func collectChunksToParseResult(chunks []map[string]any) *ParseResult {
 		s.CandidateIndex = first.index
 	}
 	return s
+}
+
+func mergeAdjacentTextParts(parts []map[string]any) []map[string]any {
+	if len(parts) <= 1 {
+		return parts
+	}
+	var merged []map[string]any
+	for _, p := range parts {
+		if len(merged) == 0 {
+			cp := shallowCopy(p)
+			merged = append(merged, cp)
+			continue
+		}
+		prev := merged[len(merged)-1]
+		prevText, prevIsText := prev["text"].(string)
+		currText, currIsText := p["text"].(string)
+		if prevIsText && currIsText && len(prev) == 1 && len(p) == 1 {
+			prev["text"] = prevText + currText
+		} else {
+			merged = append(merged, shallowCopy(p))
+		}
+	}
+	return merged
 }
 
 func candidateFinish(result map[string]any) string {

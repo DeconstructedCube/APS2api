@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/db"
+	"AnonymousVertex/internal/db"
 )
 
 func TestProxyCandidateLifecycleAndActiveRemoval(t *testing.T) {

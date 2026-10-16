@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/netx"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/netx"
+	"AnonymousVertex/internal/nodes"
+	"AnonymousVertex/internal/transport"
 )
 
 var fallbackUAs = []string{

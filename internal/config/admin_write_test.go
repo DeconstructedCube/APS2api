@@ -21,7 +21,7 @@ func TestWriteSettingsMergesAndPreservesUnknown(t *testing.T) {
 	}
 	InvalidateCache()
 
-	if err := WriteSettings(map[string]any{"max_retries": 5, "aggregate_stream": true}); err != nil {
+	if err := WriteSettings(map[string]any{"max_retries": 5, "request_timeout": 200}); err != nil {
 		t.Fatalf("WriteSettings: %v", err)
 	}
 
@@ -30,8 +30,8 @@ func TestWriteSettingsMergesAndPreservesUnknown(t *testing.T) {
 	if cfg.MaxRetries != 5 {
 		t.Fatalf("max_retries 应为 5，got %d", cfg.MaxRetries)
 	}
-	if !cfg.AggregateStream {
-		t.Fatalf("aggregate_stream 应为 true")
+	if cfg.RequestTimeout != 200 {
+		t.Fatalf("request_timeout 应为 200，got %d", cfg.RequestTimeout)
 	}
 
 	// 原始 map 读取：未提及字段 + 额外字段都应保留。

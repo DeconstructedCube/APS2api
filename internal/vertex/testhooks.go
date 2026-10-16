@@ -1,6 +1,6 @@
 package vertex
 
-import "github.com/bsfdsagfadg/vertex/internal/recaptcha"
+import "AnonymousVertex/internal/recaptcha"
 
 // SetBatchGraphqlURL overrides the batchGraphql URL for testing.
 // Will be replaced by dependency injection in phase 3/4.

@@ -7,14 +7,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
 
 const (
 	defaultAnonAPIKey                     = "AIzaSyCI-zsRP85UVOi0DjtiCwWBwQ1djDy741g"
-	defaultCountTokensQuerySig            = "2/mENOSldfC+HZM+tGhVuJLrl8M6gEyK3HRjUKuA5AM58="
 	maxTimeoutSeconds                     = 1800
 	DefaultEntryProxyProbeIntervalSeconds = 300
 	DefaultEntryProxyProbeCooldownSeconds = 60
@@ -31,19 +29,14 @@ type AppConfig struct { //nolint:govet
 	MaxRetries                int               `json:"max_retries"`
 	AdminPassword             string            `json:"admin_password"`
 	ProxyURL                  string            `json:"proxy_url"`
-	AggregateStream           bool              `json:"aggregate_stream"`
-	FakeStreamEnabled         bool              `json:"fake_stream_enabled"`
-	DropMaxTokens             bool              `json:"drop_max_tokens"`
 	SafetySettings            map[string]string `json:"safety_settings"`
 	VertexAPIKey              string            `json:"vertex_api_key"`
-	CountTokensQuerySignature string            `json:"count_tokens_query_signature"`
 	MaxN                      int               `json:"max_n"`
 	MaxSpillMB                int               `json:"max_spill_mb"`
 	MaxRequestMB              int               `json:"max_request_mb"`
 	RequestTimeout            int               `json:"request_timeout"`
 	RaceTimeout               int               `json:"race_timeout"`
 	StreamIdleTimeoutSeconds  int               `json:"stream_idle_timeout_seconds"` // 流式包间空闲超时（秒），防呆连接假死
-	ModelTurnGuardEnabled     bool              `json:"model_turn_guard_enabled"`
 
 	// 并发池与节点锁定配置
 	ActiveNodeURI                      string `json:"active_node_uri"`
@@ -63,20 +56,6 @@ type AppConfig struct { //nolint:govet
 	EntryProxyProbeAutoDisableFailures int    `json:"entry_proxy_probe_auto_disable_failures"`
 	RecaptchaTryEntryOrDirect          bool   `json:"recaptcha_try_entry_or_direct"`
 
-	// 匿名遥测：仅发送实例 ID + 版本 + 平台，不含任何用户/网络/隐私数据。
-	// 用于了解软件的版本分布和活跃数。指针类型区分"未设置"和"显式 false"，未设置时默认开启。
-	TelemetryEnabled *bool `json:"telemetry_enabled,omitempty"`
-
-	// 外观配置
-	BackgroundImage string   `json:"background_image"`
-	FontSize        string   `json:"font_size"`
-	FontColorType   string   `json:"font_color_type"`
-	FontColor       string   `json:"font_color"`
-	CustomBgPresets []string `json:"custom_bg_presets"`
-	AutoRefreshLogs *bool    `json:"auto_refresh_logs,omitempty"`
-
-	DefaultImageSize          string `json:"default_image_size"`
-	DefaultResponseModalities string `json:"default_response_modalities"`
 }
 
 func DefaultConfig() AppConfig {
@@ -84,15 +63,12 @@ func DefaultConfig() AppConfig {
 		PortAPI:                            2156,
 		MaxRetries:                         1, // 默认为 1 次
 		VertexAPIKey:                       defaultAnonAPIKey,
-		CountTokensQuerySignature:          defaultCountTokensQuerySig,
 		MaxN:                               8,
 		MaxSpillMB:                         32,
 		MaxRequestMB:                       128,
 		RequestTimeout:                     180,
-		FakeStreamEnabled:                  true,
 		RaceTimeout:                        DefaultRaceTimeoutSeconds,
 		StreamIdleTimeoutSeconds:           DefaultStreamIdleTimeoutSeconds,
-		ModelTurnGuardEnabled:              true,
 		ParallelPoolEnabled:                true,
 		StickyNodePriority:                 false,
 		ParallelPoolSize:                   15, // 默认为 15 并发
@@ -105,13 +81,6 @@ func DefaultConfig() AppConfig {
 		EntryProxyProbeAutoDisableEnabled:  false,
 		EntryProxyProbeAutoDisableFailures: DefaultEntryProxyAutoDisableFailures,
 		RecaptchaTryEntryOrDirect:          true,
-		BackgroundImage:                    "url('background.jpg')",
-		FontSize:                           "14px",
-		FontColorType:                      "adaptive",
-		FontColor:                          "#f6f1e9",
-		CustomBgPresets:                    []string{},
-		DefaultImageSize:                   "1K",
-		DefaultResponseModalities:          "图文",
 	}
 }
 
@@ -256,22 +225,6 @@ func Load() AppConfig {
 				cfg.EntryProxyProbeAutoDisableFailures = MaxEntryProxyAutoDisableFailures
 				needsSave = true
 			}
-			if normalized := normalizeImageSizeTier(cfg.DefaultImageSize); normalized == "" {
-				if cfg.DefaultImageSize != "" {
-					log.Printf("[Config] default_image_size 非法 (%q)，回退 1K", cfg.DefaultImageSize)
-				}
-				cfg.DefaultImageSize = "1K"
-				needsSave = true
-			} else {
-				cfg.DefaultImageSize = normalized
-			}
-			if cfg.DefaultResponseModalities != "图文" && cfg.DefaultResponseModalities != "仅图片" {
-				if cfg.DefaultResponseModalities != "" {
-					log.Printf("[Config] default_response_modalities 非法 (%q)，回退 图文", cfg.DefaultResponseModalities)
-				}
-				cfg.DefaultResponseModalities = "图文"
-				needsSave = true
-			}
 			// 拦截在文件读取配置时过高的并发数限制为 20
 			if cfg.ParallelPoolSize > 20 {
 				log.Printf("[Config] 警告: 并发数配置过高 (%d)，已限制为上限 20", cfg.ParallelPoolSize)
@@ -289,8 +242,6 @@ func Load() AppConfig {
 					"entry_proxy_probe_cooldown_seconds":      cfg.EntryProxyProbeCooldownSeconds,
 					"entry_proxy_probe_auto_disable_failures": cfg.EntryProxyProbeAutoDisableFailures,
 					"recaptcha_try_entry_or_direct":           cfg.RecaptchaTryEntryOrDirect,
-					"default_image_size":                      cfg.DefaultImageSize,
-					"default_response_modalities":             cfg.DefaultResponseModalities,
 				}); errSave != nil {
 					log.Printf("[Config] 自动回写规范化配置失败: %v", errSave)
 				}
@@ -363,18 +314,6 @@ func (c *AppConfig) WriteModels(models []string, aliasMap map[string]string) err
 }
 
 func (c AppConfig) GetAutoRefreshLogs() bool {
-	if c.AutoRefreshLogs == nil {
-		return true
-	}
-	return *c.AutoRefreshLogs
+	return true
 }
 
-func normalizeImageSizeTier(value string) string {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
-	switch normalized {
-	case "512", "1K", "2K", "4K":
-		return normalized
-	default:
-		return ""
-	}
-}

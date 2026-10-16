@@ -5,9 +5,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/recaptcha"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/recaptcha"
+	"AnonymousVertex/internal/transport"
 )
 
 func TestPrepareRequestDoesNotPrefetchOrShareToken(t *testing.T) {

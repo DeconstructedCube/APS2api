@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/nodes"
+	"AnonymousVertex/internal/transport"
 )
 
 // recaptcha 相关硬编码常量（逐字节保持既定常量）。

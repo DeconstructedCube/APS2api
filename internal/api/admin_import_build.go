@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
+	"AnonymousVertex/internal/nodes"
 	"gopkg.in/yaml.v3"
 )
 
