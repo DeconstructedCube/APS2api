@@ -71,16 +71,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/meta/build", s.handleBuildMeta)
 
 	// 模型列表
-	mux.HandleFunc("/v1/models", s.handleModelsGemini)
 	mux.HandleFunc("/v1beta/models", s.handleModelsGemini)
-	mux.HandleFunc("/v1beta1/models", s.handleModelsGemini)
-	mux.HandleFunc("/v1alpha/models", s.handleModelsGemini)
 
 	// Gemini 端点子树
-	mux.HandleFunc("/v1/models/", s.gemini.handleModelsSubtree)
 	mux.HandleFunc("/v1beta/models/", s.gemini.handleModelsSubtree)
-	mux.HandleFunc("/v1beta1/models/", s.gemini.handleModelsSubtree)
-	mux.HandleFunc("/v1alpha/models/", s.gemini.handleModelsSubtree)
 
 	// 管理控制台与静态资源
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)

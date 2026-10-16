@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) *testServerFixture {
 func TestGeminiEndpointRouting(t *testing.T) {
 	fx := newTestServer(t)
 	client := &http.Client{}
-	prefixes := []string{"/v1beta", "/v1beta1", "/v1alpha"}
+	prefixes := []string{"/v1beta"}
 
 	for _, prefix := range prefixes {
 		t.Run("ModelsList_"+prefix, func(t *testing.T) {

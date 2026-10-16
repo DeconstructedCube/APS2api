@@ -15,20 +15,11 @@ type GeminiHandler struct {
 }
 
 func (g *GeminiHandler) handleModelsSubtree(w http.ResponseWriter, r *http.Request) {
-	var rest string
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/v1beta/models/"):
-		rest = strings.TrimPrefix(r.URL.Path, "/v1beta/models/")
-	case strings.HasPrefix(r.URL.Path, "/v1beta1/models/"):
-		rest = strings.TrimPrefix(r.URL.Path, "/v1beta1/models/")
-	case strings.HasPrefix(r.URL.Path, "/v1alpha/models/"):
-		rest = strings.TrimPrefix(r.URL.Path, "/v1alpha/models/")
-	case strings.HasPrefix(r.URL.Path, "/v1/models/"):
-		rest = strings.TrimPrefix(r.URL.Path, "/v1/models/")
-	default:
+	if !strings.HasPrefix(r.URL.Path, "/v1beta/models/") {
 		g.geminiError(w, http.StatusNotFound, "not found", "NOT_FOUND")
 		return
 	}
+	rest := strings.TrimPrefix(r.URL.Path, "/v1beta/models/")
 	if rest == "" {
 		g.geminiError(w, http.StatusNotFound, "not found", "NOT_FOUND")
 		return
