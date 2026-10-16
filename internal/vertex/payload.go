@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/transform"
 )
 
 // batchGraphql 请求的固定包壳常量（逐字节对齐 PoC body.json / vertex_client）。
@@ -49,12 +47,18 @@ func randomUUID() string {
 		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16])
 }
 
-// buildRequestPayload 构建发往上游的完整请求体（对齐 _build_request_payload）：
-// 用 transform 构建 variables，再强制注入 region=global 与 recaptchaToken，最后包壳。
-func buildRequestPayload(model string, geminiPayload map[string]any, recaptchaToken string, cfg config.ConfigProvider) map[string]any {
-	vars := transform.BuildVertexVariables(model, geminiPayload, cfg)
+// buildRequestPayload 构建发往上游的完整请求体：
+// 纯原生零干涉直通，客户端发送的原生 Gemini payload 原封不动放入 variables，
+// 仅注入 model, region=global, recaptchaToken，绝对不截断参数或伪造回合。
+func buildRequestPayload(model string, geminiPayload map[string]any, recaptchaToken string) map[string]any {
+	vars := make(map[string]any, len(geminiPayload)+3)
+	for k, v := range geminiPayload {
+		vars[k] = v
+	}
+	vars["model"] = model
 	vars["region"] = "global"
 	vars["recaptchaToken"] = recaptchaToken
+
 	trackingID := randomTrackingID()
 	return map[string]any{
 		"requestContext": map[string]any{
@@ -68,7 +72,7 @@ func buildRequestPayload(model string, geminiPayload map[string]any, recaptchaTo
 			"jurisdiction":     "global",
 			"localizationData": map[string]any{
 				"locale":   "zh_CN",
-				"timezone": "Asia/Hong_Kong",
+                "timezone": "Asia/Hong_Kong",
 			},
 		},
 		"querySignature": querySignature,

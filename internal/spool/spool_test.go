@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/jsonx"
+	"AnonymousVertex/internal/jsonx"
 )
 
 // TestEncodeJSONMatchesJsonx 验证 EncodeJSON 与 jsonx.Marshal 逐字节一致

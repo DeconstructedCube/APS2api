@@ -39,3 +39,8 @@ config/migrated/
 
 # Logs
 logs/
+
+# Frontend dependencies
+node_modules/
+web/node_modules/
+*.v1.bak

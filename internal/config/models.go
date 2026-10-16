@@ -17,18 +17,11 @@ import (
 
 const modelsFileVersion = 2
 
-// fakePrefixes 是假流式模型前缀（中文 + ASCII）。
-//
-//nolint:gochecknoglobals // Read-only prefix list
-var fakePrefixes = []string{"假流式-", "fake-"}
-
-func FakePrefixes() []string { return append([]string(nil), fakePrefixes...) }
 
 // ModelEntry 是 models.json v2 中的一条模型注册记录。
 type ModelEntry struct {
 	ID                 string `json:"id"`
 	Enabled            bool   `json:"enabled"`
-	FakeStreamEnabled  bool   `json:"fake_stream_enabled"`
 	TrailingFixEnabled bool   `json:"trailing_fix_enabled"`
 }
 
@@ -36,29 +29,29 @@ type ModelEntry struct {
 //
 //nolint:gochecknoglobals // Read-only default registry
 var defaultModelRegistry = []ModelEntry{
-	{ID: "gemini-2.5-flash", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-2.5-flash-lite", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-2.5-flash-image", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-2.5-pro", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3-flash-preview", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3-pro-image", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.1-flash-lite", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.1-flash-lite-image", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.1-flash-image", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.1-flash-tts-preview", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.1-pro-preview", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.5-flash", Enabled: true, FakeStreamEnabled: true},
-	{ID: "gemini-3.5-flash-lite", Enabled: true, FakeStreamEnabled: true, TrailingFixEnabled: true},
-	{ID: "gemini-3.6-flash", Enabled: true, FakeStreamEnabled: true, TrailingFixEnabled: true},
-	{ID: "imagen-3.0-capability", Enabled: true, FakeStreamEnabled: true},
-	{ID: "imagen-4.0-generate-001", Enabled: true, FakeStreamEnabled: true},
-	{ID: "imagen-4.0-ultra-generate-001", Enabled: true, FakeStreamEnabled: true},
-	{ID: "imagen-4.0-fast-generate-001", Enabled: true, FakeStreamEnabled: true},
-	{ID: "virtual-try-on-001", Enabled: true, FakeStreamEnabled: true},
-	{ID: "lyria-002", Enabled: true, FakeStreamEnabled: true},
-	{ID: "veo-2-generate-001", Enabled: true, FakeStreamEnabled: true},
-	{ID: "veo-3-generate-001", Enabled: true, FakeStreamEnabled: true},
-	{ID: "veo-3-fast-generate-001", Enabled: true, FakeStreamEnabled: true},
+	{ID: "gemini-2.5-flash", Enabled: true},
+	{ID: "gemini-2.5-flash-lite", Enabled: true},
+	{ID: "gemini-2.5-flash-image", Enabled: true},
+	{ID: "gemini-2.5-pro", Enabled: true},
+	{ID: "gemini-3-flash-preview", Enabled: true},
+	{ID: "gemini-3-pro-image", Enabled: true},
+	{ID: "gemini-3.1-flash-lite", Enabled: true},
+	{ID: "gemini-3.1-flash-lite-image", Enabled: true},
+	{ID: "gemini-3.1-flash-image", Enabled: true},
+	{ID: "gemini-3.1-flash-tts-preview", Enabled: true},
+	{ID: "gemini-3.1-pro-preview", Enabled: true},
+	{ID: "gemini-3.5-flash", Enabled: true},
+	{ID: "gemini-3.5-flash-lite", Enabled: true, TrailingFixEnabled: true},
+	{ID: "gemini-3.6-flash", Enabled: true, TrailingFixEnabled: true},
+	{ID: "imagen-3.0-capability", Enabled: true},
+	{ID: "imagen-4.0-generate-001", Enabled: true},
+	{ID: "imagen-4.0-ultra-generate-001", Enabled: true},
+	{ID: "imagen-4.0-fast-generate-001", Enabled: true},
+	{ID: "virtual-try-on-001", Enabled: true},
+	{ID: "lyria-002", Enabled: true},
+	{ID: "veo-2-generate-001", Enabled: true},
+	{ID: "veo-3-generate-001", Enabled: true},
+	{ID: "veo-3-fast-generate-001", Enabled: true},
 }
 
 type modelsFile struct {
@@ -116,7 +109,7 @@ func defaultEntryFor(id string) ModelEntry {
 			return entry
 		}
 	}
-	return ModelEntry{ID: id, Enabled: true, FakeStreamEnabled: true}
+	return ModelEntry{ID: id, Enabled: true}
 }
 
 func DefaultModelEntry(id string) ModelEntry { return defaultEntryFor(strings.TrimSpace(id)) }
@@ -287,20 +280,6 @@ func LookupModel(model string) (ModelEntry, bool) {
 	return ModelEntry{}, false
 }
 
-func modelsWithFakeVariants(globalEnabled bool) []string {
-	registry := loadModelsFile().Models
-	result := make([]string, 0, len(registry)*3)
-	for _, entry := range registry {
-		if !entry.Enabled {
-			continue
-		}
-		result = append(result, entry.ID)
-		if globalEnabled && entry.FakeStreamEnabled {
-			result = append(result, fakePrefixes[0]+entry.ID, fakePrefixes[1]+entry.ID)
-		}
-	}
-	return result
-}
 
 func ResolveModelName(model string) string {
 	if real, ok := loadModelsFile().AliasMap[model]; ok {
@@ -330,9 +309,5 @@ func WriteModels(models []string, aliasMap map[string]string) error {
 func (c AppConfig) BaseModels() []string        { return BaseModels() }
 func (c AppConfig) ModelRegistry() []ModelEntry { return ModelRegistry() }
 func (c AppConfig) AliasMap() map[string]string { return AliasMap() }
-func (c AppConfig) ModelsWithFakeVariants() []string {
-	return modelsWithFakeVariants(c.FakeStreamEnabled)
-}
-func (c AppConfig) FakePrefixes() []string                      { return FakePrefixes() }
 func (c AppConfig) ResolveModelName(model string) string        { return ResolveModelName(model) }
 func (c AppConfig) LookupModel(model string) (ModelEntry, bool) { return LookupModel(model) }

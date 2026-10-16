@@ -3,7 +3,7 @@ package api
 import (
 	"runtime"
 
-	"github.com/bsfdsagfadg/vertex/internal/spool"
+	"AnonymousVertex/internal/spool"
 )
 
 func metricsBody() map[string]any {

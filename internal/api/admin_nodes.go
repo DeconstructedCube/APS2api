@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/netx"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
-	"github.com/bsfdsagfadg/vertex/internal/recaptcha"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/netx"
+	"AnonymousVertex/internal/nodes"
+	"AnonymousVertex/internal/recaptcha"
+	"AnonymousVertex/internal/transport"
 )
 
 const (
@@ -262,7 +262,7 @@ func (adm *AdminHandler) adminTestNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isKnownTestURI(body.RawURI) {
-		oaiError(w, http.StatusBadRequest, "未知节点 URI", "invalid_parameter")
+		apiError(w, http.StatusBadRequest, "未知节点 URI", "INVALID_ARGUMENT")
 		return
 	}
 	if body.TimeoutSeconds <= 0 {
@@ -274,7 +274,7 @@ func (adm *AdminHandler) adminTestNode(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	if !acquireTestSession(ctx) {
-		oaiError(w, http.StatusGatewayTimeout, "测试会话等待超时", "timeout")
+		apiError(w, http.StatusGatewayTimeout, "测试会话等待超时", "DEADLINE_EXCEEDED")
 		return
 	}
 	defer releaseTestSession()

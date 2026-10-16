@@ -5,9 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/nodes"
 )
+
+type winnerStream struct {
+	initial []StreamChunk
+	tail    <-chan StreamChunk
+}
 
 func StreamParallel(ctx context.Context, cfg config.ConfigProvider,
 	op func(context.Context, string) <-chan StreamChunk,
@@ -16,13 +21,12 @@ func StreamParallel(ctx context.Context, cfg config.ConfigProvider,
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 
-	wrappedOp := func(ctx context.Context, uri string) (<-chan StreamChunk, error) {
+	wrappedOp := func(ctx context.Context, uri string) (*winnerStream, error) {
 		ch := op(ctx, uri)
 		// Anonymous streaming commonly starts with metadata/default finish frames.
 		// Do not let those frames win the race: wait for real content or an error,
 		// while retaining every frame so the winning stream remains lossless.
 		buffered := make([]StreamChunk, 0, 4)
-		hasValidContent := false
 		for {
 			select {
 			case chunk, ok := <-ch:
@@ -37,34 +41,18 @@ func StreamParallel(ctx context.Context, cfg config.ConfigProvider,
 					return nil, chunk.Err
 				}
 				if streamChunkHasContent(chunk) {
-					hasValidContent = true
-				}
-				if hasValidContent {
-					goto contentReady
+					return &winnerStream{
+						initial: buffered,
+						tail:    ch,
+					}, nil
 				}
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
-	contentReady:
-		rest := make(chan StreamChunk, len(buffered)+64)
-		for _, chunk := range buffered {
-			rest <- chunk
-		}
-		go func() {
-			defer close(rest)
-			for chunk := range ch {
-				select {
-				case rest <- chunk:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-		return rest, nil
 	}
 
-	winnerCh, err := RunRace(streamCtx, cfg, wrappedOp, WithNoCancelOnSuccess[<-chan StreamChunk]())
+	winner, err := RunRace(streamCtx, cfg, wrappedOp, WithNoCancelOnSuccess[*winnerStream]())
 	if err != nil {
 		var vertexErr *VertexError
 		if errors.As(err, &vertexErr) {
@@ -74,7 +62,18 @@ func StreamParallel(ctx context.Context, cfg config.ConfigProvider,
 		}
 		return
 	}
-	for chunk := range winnerCh {
+
+	if winner == nil {
+		yield(StreamChunk{Err: NewEmptyResponseError("Upstream returned empty stream")})
+		return
+	}
+
+	for _, chunk := range winner.initial {
+		if !yield(chunk) {
+			return
+		}
+	}
+	for chunk := range winner.tail {
 		if !yield(chunk) {
 			return
 		}

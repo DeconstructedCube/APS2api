@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/vertex"
+	"AnonymousVertex/internal/vertex"
 )
 
 // TestWithMetrics 验证 withMetrics 中间件行为：
@@ -19,7 +19,7 @@ func TestWithMetrics(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec := httptest.NewRecorder()
-	ok.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/chat/completions", nil))
+	ok.ServeHTTP(rec, httptest.NewRequest("POST", "/v1beta/models/gemini-2.5-flash:generateContent", nil))
 	if rec.Header().Get("X-Request-Id") == "" {
 		t.Fatal("应设置 X-Request-Id 响应头")
 	}

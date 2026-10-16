@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/db"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/db"
 )
 
 func TestEntryProxyProbeScheduleUsesUpdatedInterval(t *testing.T) {

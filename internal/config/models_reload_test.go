@@ -61,8 +61,8 @@ func TestModelsV1AutoMigration(t *testing.T) {
 	InvalidateModelsCache()
 
 	registry := ModelRegistry()
-	assertModelEntry(t, registry, "gemini-3.6-flash", true, true, true)
-	assertModelEntry(t, registry, "custom-model", true, true, false)
+	assertModelEntry(t, registry, "gemini-3.6-flash", true, true)
+	assertModelEntry(t, registry, "custom-model", true, false)
 
 	backup, err := os.ReadFile(path + ".v1.bak")
 	if err != nil {
@@ -106,47 +106,22 @@ func TestModelsV2MergesMissingDefaultsWithoutOverwritingState(t *testing.T) {
 	InvalidateModelsCache()
 
 	registry := ModelRegistry()
-	assertModelEntry(t, registry, "custom-model", false, false, true)
-	assertModelEntry(t, registry, "gemini-3.6-flash", true, true, true)
-	assertModelEntry(t, registry, "gemini-2.5-flash", true, true, false)
+	assertModelEntry(t, registry, "custom-model", false, true)
+	assertModelEntry(t, registry, "gemini-3.6-flash", true, true)
+	assertModelEntry(t, registry, "gemini-2.5-flash", true, false)
 	if contains(BaseModels(), "custom-model") {
 		t.Fatal("禁用模型不应出现在 BaseModels")
 	}
 	InvalidateModelsCache()
 }
 
-func TestModelsWithFakeVariantsRespectsGlobalAndModelFlags(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "models.json")
-	t.Setenv("VPROXY_MODELS", path)
-	if err := WriteModelRegistry([]ModelEntry{
-		{ID: "fake-on", Enabled: true, FakeStreamEnabled: true},
-		{ID: "fake-off", Enabled: true, FakeStreamEnabled: false},
-		{ID: "disabled", Enabled: false, FakeStreamEnabled: true},
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
 
-	withFake := modelsWithFakeVariants(true)
-	if !contains(withFake, "fake-fake-on") || !contains(withFake, "假流式-fake-on") {
-		t.Fatalf("fake-on 缺少假流式变体: %v", withFake)
-	}
-	if contains(withFake, "fake-fake-off") || contains(withFake, "disabled") {
-		t.Fatalf("禁用状态未生效: %v", withFake)
-	}
-	withoutFake := modelsWithFakeVariants(false)
-	if contains(withoutFake, "fake-fake-on") || !contains(withoutFake, "fake-on") {
-		t.Fatalf("全局假流式开关未生效: %v", withoutFake)
-	}
-	InvalidateModelsCache()
-}
-
-func assertModelEntry(t *testing.T, entries []ModelEntry, id string, enabled, fake, trailing bool) {
+func assertModelEntry(t *testing.T, entries []ModelEntry, id string, enabled, trailing bool) {
 	t.Helper()
 	for _, entry := range entries {
 		if entry.ID == id {
-			if entry.Enabled != enabled || entry.FakeStreamEnabled != fake || entry.TrailingFixEnabled != trailing {
-				t.Fatalf("模型 %s 状态=%+v, want enabled=%v fake=%v trailing=%v", id, entry, enabled, fake, trailing)
+			if entry.Enabled != enabled || entry.TrailingFixEnabled != trailing {
+				t.Fatalf("模型 %s 状态=%+v, want enabled=%v trailing=%v", id, entry, enabled, trailing)
 			}
 			return
 		}

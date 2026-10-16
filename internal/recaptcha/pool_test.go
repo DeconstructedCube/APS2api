@@ -18,10 +18,6 @@ func TestTokenPoolRealtime(t *testing.T) {
 		return fmt.Sprintf("tok-%d", n), nil
 	})
 
-	p.Start()
-	if size, fill := p.Stats(); size != 0 || fill != 0 {
-		t.Fatalf("Stats 应为 0,0，got %d,%d", size, fill)
-	}
 
 	for i := 1; i <= 3; i++ {
 		tok, err := p.GetToken()
@@ -33,7 +29,6 @@ func TestTokenPoolRealtime(t *testing.T) {
 		}
 	}
 
-	p.Stop() // 不应阻塞
 }
 
 func TestTokenPoolSharedStartsFiveRoutesImmediately(t *testing.T) {

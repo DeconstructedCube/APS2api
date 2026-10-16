@@ -2,20 +2,15 @@ package vertex
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"log"
 	"math"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/recaptcha"
-	"github.com/bsfdsagfadg/vertex/internal/transform"
-	"github.com/bsfdsagfadg/vertex/internal/transport"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/recaptcha"
+	"AnonymousVertex/internal/transport"
 )
 
 const (
@@ -76,9 +71,6 @@ func NewVertexAIClient(cfg config.ConfigProvider) *VertexAIClient {
 	}
 }
 
-func (c *VertexAIClient) StartTokenPool()                  { c.pool.Start() }
-func (c *VertexAIClient) StopTokenPool()                   { c.pool.Stop() }
-func (c *VertexAIClient) TokenPoolStats() (size, fill int) { return c.pool.Stats() }
 
 func (c *VertexAIClient) getBatchGraphqlURL() string {
 	if !strings.HasPrefix(batchGraphqlURL, anonBaseURL) {
@@ -89,83 +81,6 @@ func (c *VertexAIClient) getBatchGraphqlURL() string {
 		key = anonAPIKey
 	}
 	return anonBaseURL + batchGraphqlPath + "?key=" + key + "&prettyPrint=false"
-}
-
-const largePayloadThreshold = 1 << 20 // 1MB
-
-func (c *VertexAIClient) CompleteChatN(ctx context.Context, model string, geminiPayload map[string]any, n int) ([]map[string]any, error) {
-	return c.completeChatNWithRoute(c.prepareRequest(ctx), model, geminiPayload, n)
-}
-
-func (c *VertexAIClient) completeChatNWithRoute(ctx context.Context, model string, geminiPayload map[string]any, n int) ([]map[string]any, error) {
-	if n > 1 {
-		if b, err := json.Marshal(geminiPayload); err == nil && len(b) > largePayloadThreshold {
-			log.Printf("[Vertex] [CompleteChatN] 大 payload (%d bytes) 降级为串行", len(b))
-			return c.completeChatNSerialWithRoute(ctx, model, geminiPayload, n)
-		}
-	}
-
-	type res struct {
-		resp map[string]any
-		err  error
-	}
-	results := make([]res, n)
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func(idx int) {
-			defer wg.Done()
-			defer func() {
-				if rec := recover(); rec != nil {
-					results[idx] = res{err: NewInternalError(fmt.Sprintf("candidate panic: %v", rec))} //nolint:exhaustruct
-				}
-			}()
-			r, err := c.completeChatWithRoute(ctx, model, geminiPayload)
-			results[idx] = res{resp: r, err: err}
-		}(i)
-	}
-	wg.Wait()
-
-	var ok []map[string]any
-	var firstErr error
-	for _, r := range results {
-		if r.err != nil {
-			if firstErr == nil {
-				firstErr = r.err
-			}
-			continue
-		}
-		ok = append(ok, r.resp)
-	}
-	if len(ok) == 0 {
-		if firstErr == nil {
-			firstErr = NewInternalError("All candidates failed")
-		}
-		return nil, firstErr
-	}
-	return ok, nil
-}
-
-func (c *VertexAIClient) completeChatNSerialWithRoute(ctx context.Context, model string, geminiPayload map[string]any, n int) ([]map[string]any, error) {
-	var ok []map[string]any
-	var firstErr error
-	for i := 0; i < n; i++ {
-		r, err := c.completeChatWithRoute(ctx, model, geminiPayload)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		ok = append(ok, r)
-	}
-	if len(ok) == 0 {
-		if firstErr == nil {
-			firstErr = NewInternalError("All candidates failed")
-		}
-		return nil, firstErr
-	}
-	return ok, nil
 }
 
 type candidateCollector struct {
@@ -193,7 +108,7 @@ func (c *VertexAIClient) buildCompleteResponse(r *ParseResult) (map[string]any, 
 	case len(r.Parts) > 0:
 		resp["candidates"] = []any{buildCandidate(r.CandidateIndex, r.Parts, r)}
 	case len(r.PromptFeedback) > 0:
-		resp["candidates"] = []any{buildCandidate(r.CandidateIndex, []map[string]any{{"text": " "}}, r)}
+		resp["candidates"] = []any{}
 	default:
 		return nil, NewEmptyResponseError("Upstream returned empty response (no content)")
 	}
@@ -316,7 +231,7 @@ func collectChunksToParseResult(chunks []map[string]any) *ParseResult {
 	sort.Ints(indices)
 	for _, index := range indices {
 		collector := candidatesMap[index]
-		parts := transform.MergeContentBlocks(collector.parts)
+		parts := mergeAdjacentTextParts(collector.parts)
 		candidate := map[string]any{
 			"index":   index,
 			"content": map[string]any{"parts": toAnySlice(parts), "role": "model"},
@@ -336,7 +251,7 @@ func collectChunksToParseResult(chunks []map[string]any) *ParseResult {
 
 	if len(indices) > 0 {
 		first := candidatesMap[indices[0]]
-		s.Parts = transform.MergeContentBlocks(first.parts)
+		s.Parts = mergeAdjacentTextParts(first.parts)
 		s.FinishReason = first.finishReason
 		s.FinishMessage = first.finishMessage
 		s.SafetyRatings = first.safetyRatings
@@ -348,6 +263,29 @@ func collectChunksToParseResult(chunks []map[string]any) *ParseResult {
 		s.CandidateIndex = first.index
 	}
 	return s
+}
+
+func mergeAdjacentTextParts(parts []map[string]any) []map[string]any {
+	if len(parts) <= 1 {
+		return parts
+	}
+	var merged []map[string]any
+	for _, p := range parts {
+		if len(merged) == 0 {
+			cp := shallowCopy(p)
+			merged = append(merged, cp)
+			continue
+		}
+		prev := merged[len(merged)-1]
+		prevText, prevIsText := prev["text"].(string)
+		currText, currIsText := p["text"].(string)
+		if prevIsText && currIsText && len(prev) == 1 && len(p) == 1 {
+			prev["text"] = prevText + currText
+		} else {
+			merged = append(merged, shallowCopy(p))
+		}
+	}
+	return merged
 }
 
 func candidateFinish(result map[string]any) string {

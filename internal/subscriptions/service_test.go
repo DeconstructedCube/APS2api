@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/db"
-	"github.com/bsfdsagfadg/vertex/internal/nodes"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/db"
+	"AnonymousVertex/internal/nodes"
 )
 
 func TestServiceDiscardsStaleResultsAndKeepsDeletedNodesAsManual(t *testing.T) {

@@ -6,16 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"math/rand/v2"
 	"net/http"
-	"strconv"
 	"strings"
-	"sync/atomic"
-	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
-	"github.com/bsfdsagfadg/vertex/internal/jsonx"
-	"github.com/bsfdsagfadg/vertex/internal/vertex"
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/jsonx"
+	"AnonymousVertex/internal/strutil"
+	"AnonymousVertex/internal/vertex"
 )
 
 type handler struct {
@@ -52,7 +49,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error":{"message":"序列化失败 (internal error)","type":"server_error","code":500}}`))
+		_, _ = w.Write([]byte(`{"error":{"message":"序列化失败 (internal error)","status":"INTERNAL"}}`))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -60,27 +57,55 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_, _ = w.Write(data)
 }
 
-func oaiError(w http.ResponseWriter, status int, msg, errType string) {
+func apiError(w http.ResponseWriter, status int, msg, statusText string) {
+	if statusText == "" {
+		switch status {
+		case http.StatusBadRequest:
+			statusText = "INVALID_ARGUMENT"
+		case http.StatusUnauthorized:
+			statusText = "UNAUTHENTICATED"
+		case http.StatusForbidden:
+			statusText = "PERMISSION_DENIED"
+		case http.StatusNotFound:
+			statusText = "NOT_FOUND"
+		default:
+			statusText = "INTERNAL"
+		}
+	}
 	writeJSON(w, status, map[string]any{"error": map[string]any{
-		"message": msg, "type": errType, "code": status,
+		"code":    status,
+		"message": msg,
+		"status":  statusText,
 	}})
 }
 
-func sseEvent(obj map[string]any) string {
-	data, err := jsonx.Marshal(obj)
-	if err != nil {
-		return "data: {}\n\n"
-	}
-	return "data: " + string(data) + "\n\n"
+type sseWriter struct {
+	w           http.ResponseWriter
+	contentType string
+	written     bool
+	flush       func()
 }
 
-func streamChunkBase(model, requestID string) map[string]any {
-	return map[string]any{
-		"id":      "chatcmpl-" + requestID,
-		"object":  "chat.completion.chunk",
-		"created": time.Now().Unix(),
-		"model":   model,
+func (s *sseWriter) hasWritten() bool {
+	return s.written
+}
+
+func (s *sseWriter) write(data string) bool {
+	if !s.written {
+		s.w.Header().Set("Content-Type", s.contentType)
+		s.w.Header().Set("Cache-Control", "no-cache")
+		s.w.Header().Set("Connection", "keep-alive")
+		s.w.WriteHeader(http.StatusOK)
+		s.written = true
 	}
+	_, err := s.w.Write([]byte(data))
+	if err != nil {
+		return false
+	}
+	if s.flush != nil {
+		s.flush()
+	}
+	return true
 }
 
 func newSSEWriter(w http.ResponseWriter, contentType string) *sseWriter {
@@ -95,64 +120,8 @@ func newSSEWriter(w http.ResponseWriter, contentType string) *sseWriter {
 	return sw
 }
 
-var reqCounter uint64 //nolint:gochecknoglobals
-
 func reqID24() string {
-	var buf [12]byte
-	if _, err := cryptorand.Read(buf[:]); err != nil {
-		now := time.Now().UnixNano()
-		count := atomic.AddUint64(&reqCounter, 1)
-		var fallback [12]byte
-		fallback[0] = byte(now >> 56)
-		fallback[1] = byte(now >> 48)
-		fallback[2] = byte(now >> 40)
-		fallback[3] = byte(now >> 32)
-		fallback[4] = byte(now >> 24)
-		fallback[5] = byte(now >> 16)
-		fallback[6] = byte(now >> 8)
-		fallback[7] = byte(now)
-		fallback[8] = byte(count >> 24)
-		fallback[9] = byte(count >> 16)
-		fallback[10] = byte(count >> 8)
-		fallback[11] = byte(count)
-		return hex.EncodeToString(fallback[:])
-	}
-	return hex.EncodeToString(buf[:])
-}
-
-func vertexErrorToOAI(e *vertex.VertexError) map[string]any {
-	var errType string
-	switch e.Kind {
-	case "invalid":
-		errType = "invalid_request_error"
-	case "ratelimit":
-		errType = "rate_limit_error"
-	case "auth":
-		errType = "server_error"
-	case "notfound", "permission":
-		errType = "invalid_request_error"
-	default:
-		errType = "server_error"
-	}
-	return map[string]any{"error": map[string]any{
-		"message": withUpstreamDetail(vertex.FriendlyErrorMessage(e), e),
-		"type":    errType,
-		"code":    e.Code,
-	}}
-}
-
-func withUpstreamDetail(friendly string, e *vertex.VertexError) string {
-	detail := strings.TrimSpace(e.Message)
-	if detail == "" {
-		detail = strings.TrimSpace(e.UpstreamResponse)
-	}
-	if detail == "" || strings.Contains(friendly, detail) {
-		return friendly
-	}
-	if r := []rune(detail); len(r) > 400 {
-		detail = string(r[:400]) + "…"
-	}
-	return friendly + "（上游原因：" + detail + "）"
+	return strutil.ReqID()
 }
 
 func toVertexError(err error) *vertex.VertexError {
@@ -181,57 +150,6 @@ func isSafetyBlock(e *vertex.VertexError) bool {
 		}
 	}
 	return false
-}
-
-func oaiSafetyResponse(model string) map[string]any {
-	return map[string]any{
-		"id":      "chatcmpl-" + reqID24(),
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   model,
-		"choices": []any{map[string]any{
-			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": nil},
-			"finish_reason": "content_filter",
-		}},
-	}
-}
-
-func resolveN(raw any, maxN int) (int, string) {
-	if maxN <= 0 {
-		maxN = 8
-	}
-	if raw == nil {
-		return 1, ""
-	}
-	var n int
-	switch v := raw.(type) {
-	case float64:
-		if v != float64(int(v)) {
-			return 0, "请求参数有误: n 必须是整数 (n must be an integer)"
-		}
-		n = int(v)
-	case int:
-		n = v
-	default:
-		return 0, "请求参数有误: n 必须是整数 (n must be an integer)"
-	}
-	if n < 1 {
-		return 0, "请求参数有误: n 必须 >= 1 (n must be >= 1)"
-	}
-	if n > maxN {
-		return 0, "请求参数有误: n 超过上限 " + strconv.Itoa(maxN) + " (n exceeds maximum " + strconv.Itoa(maxN) + ")"
-	}
-	return n, ""
-}
-
-func randomDigits(n int) string {
-	const digits = "0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = digits[rand.IntN(len(digits))]
-	}
-	return string(b)
 }
 
 func adminErr(msg string) map[string]any {

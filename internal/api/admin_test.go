@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
+	"AnonymousVertex/internal/config"
 )
 
 // resetAdminSessions 清空包级 session 表，避免用例间互相污染。
@@ -20,7 +20,7 @@ func resetAdminSessions() {
 
 func TestAdminFrontendDisablesBrowserCache(t *testing.T) {
 	adm := &AdminHandler{}
-	for _, path := range []string{"/admin/", "/admin/admin.css", "/admin/page-settings.js"} {
+	for _, path := range []string{"/admin/", "/admin/index.html"} {
 		recorder := httptest.NewRecorder()
 		adm.handleAdminPage(recorder, httptest.NewRequest("GET", path, nil))
 		if recorder.Code != 200 {

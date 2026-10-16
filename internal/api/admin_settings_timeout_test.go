@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bsfdsagfadg/vertex/internal/config"
+	"AnonymousVertex/internal/config"
 )
 
 func TestAdminSettingsNormalizesTimeoutBounds(t *testing.T) {

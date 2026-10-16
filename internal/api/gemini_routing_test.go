@@ -3,13 +3,38 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"AnonymousVertex/internal/config"
+	"AnonymousVertex/internal/vertex"
 )
+
+type testServerFixture struct {
+	server *httptest.Server
+	srv    *Server
+}
+
+func newTestServer(t *testing.T) *testServerFixture {
+	cfg := config.StaticProvider(config.DefaultConfig())
+	keys := NewAPIKeyManager()
+	keys.mu.Lock()
+	keys.keys["sk-test-key"] = "test"
+	keys.mu.Unlock()
+	vc := vertex.NewVertexAIClient(cfg)
+	srv := NewServer(vc, keys, cfg)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.Close()
+		srv.Close()
+	})
+	return &testServerFixture{server: ts, srv: srv}
+}
 
 func TestGeminiEndpointRouting(t *testing.T) {
 	fx := newTestServer(t)
 	client := &http.Client{}
-	prefixes := []string{"/v1beta", "/v1beta1", "/v1alpha"}
+	prefixes := []string{"/v1beta"}
 
 	for _, prefix := range prefixes {
 		t.Run("ModelsList_"+prefix, func(t *testing.T) {
