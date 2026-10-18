@@ -11,6 +11,7 @@ import (
 
 	"AnonymousVertex/internal/db"
 	"AnonymousVertex/internal/strutil"
+	"AnonymousVertex/internal/transport"
 )
 
 const (
@@ -120,18 +121,18 @@ func saveNodeStateUnsafe() error {
 		return err
 	}
 
-	existingRows, err := tx.Query("SELECT raw_uri FROM nodes")
+	existingRows, err := tx.Query("SELECT raw_uri, type, name, disabled FROM nodes")
 	if err != nil {
 		return rollback(err)
 	}
-	existing := make(map[string]struct{})
+	existing := make(map[string]Node)
 	for existingRows.Next() {
-		var rawURI string
-		if err = existingRows.Scan(&rawURI); err != nil {
+		var n Node
+		if err = existingRows.Scan(&n.RawURI, &n.Type, &n.Name, &n.Disabled); err != nil {
 			_ = existingRows.Close()
 			return rollback(err)
 		}
-		existing[rawURI] = struct{}{}
+		existing[n.RawURI] = n
 	}
 	if err = existingRows.Err(); err != nil {
 		_ = existingRows.Close()
@@ -151,6 +152,9 @@ func saveNodeStateUnsafe() error {
 	current := make(map[string]struct{}, len(nodeList))
 	for _, node := range nodeList {
 		current[node.RawURI] = struct{}{}
+		if prev, ok := existing[node.RawURI]; ok && prev == node {
+			continue
+		}
 		if _, err = upsert.Exec(node.RawURI, node.Type, node.Name, node.Disabled); err != nil {
 			_ = upsert.Close()
 			return rollback(err)
@@ -167,15 +171,54 @@ func saveNodeStateUnsafe() error {
 		if _, err = tx.Exec("DELETE FROM node_health WHERE raw_uri = ?", rawURI); err != nil {
 			return rollback(err)
 		}
+		if _, err = tx.Exec("DELETE FROM node_sources WHERE raw_uri = ?", rawURI); err != nil {
+			return rollback(err)
+		}
 		if _, err = tx.Exec("DELETE FROM nodes WHERE raw_uri = ?", rawURI); err != nil {
 			return rollback(err)
 		}
 	}
 
-	if _, err = tx.Exec("DELETE FROM node_sources"); err != nil {
+	srcRows, err := tx.Query("SELECT raw_uri, source_type, source_id FROM node_sources")
+	if err != nil {
 		return rollback(err)
 	}
-	sourceStmt, err := tx.Prepare("INSERT INTO node_sources (raw_uri, source_type, source_id) VALUES (?, ?, ?)")
+	dbSources := make(map[string]map[NodeSource]struct{})
+	for srcRows.Next() {
+		var rawURI string
+		var src NodeSource
+		if err = srcRows.Scan(&rawURI, &src.Type, &src.ID); err != nil {
+			_ = srcRows.Close()
+			return rollback(err)
+		}
+		if dbSources[rawURI] == nil {
+			dbSources[rawURI] = make(map[NodeSource]struct{})
+		}
+		dbSources[rawURI][src] = struct{}{}
+	}
+	if err = srcRows.Err(); err != nil {
+		_ = srcRows.Close()
+		return rollback(err)
+	}
+	if err = srcRows.Close(); err != nil {
+		return rollback(err)
+	}
+
+	for rawURI, oldSet := range dbSources {
+		if _, ok := current[rawURI]; !ok {
+			continue
+		}
+		newSet := nodeSources[rawURI]
+		for src := range oldSet {
+			if _, keep := newSet[src]; !keep {
+				if _, err = tx.Exec("DELETE FROM node_sources WHERE raw_uri = ? AND source_type = ? AND source_id = ?", rawURI, src.Type, src.ID); err != nil {
+					return rollback(err)
+				}
+			}
+		}
+	}
+
+	sourceStmt, err := tx.Prepare("INSERT OR IGNORE INTO node_sources (raw_uri, source_type, source_id) VALUES (?, ?, ?)")
 	if err != nil {
 		return rollback(err)
 	}
@@ -183,7 +226,11 @@ func saveNodeStateUnsafe() error {
 		if _, ok := current[rawURI]; !ok {
 			continue
 		}
+		oldSet := dbSources[rawURI]
 		for source := range sources {
+			if _, exists := oldSet[source]; exists {
+				continue
+			}
 			if _, err = sourceStmt.Exec(rawURI, source.Type, source.ID); err != nil {
 				_ = sourceStmt.Close()
 				return rollback(err)
@@ -286,12 +333,9 @@ func finishRemovedNodesUnsafe(removed []string) {
 	}
 }
 
-func notifyRemovedNodes(removed []string, callback func(string)) {
-	if callback == nil {
-		return
-	}
+func notifyRemovedNodes(removed []string) {
 	for _, rawURI := range removed {
-		callback(rawURI)
+		transport.RemoveProxy(rawURI)
 	}
 }
 
@@ -328,9 +372,8 @@ func ReplaceSubscriptionNodes(subscriptionID string, newNodes []Node, adoptManua
 		return err
 	}
 	finishRemovedNodesUnsafe(removed)
-	callback := DeleteNodeCallback
 	mu.Unlock()
-	notifyRemovedNodes(removed, callback)
+	notifyRemovedNodes(removed)
 	return nil
 }
 
@@ -360,16 +403,9 @@ func RemoveSubscriptionSource(subscriptionID string, deleteNodes bool) error {
 		return err
 	}
 	finishRemovedNodesUnsafe(removed)
-	callback := DeleteNodeCallback
 	mu.Unlock()
-	notifyRemovedNodes(removed, callback)
+	notifyRemovedNodes(removed)
 	return nil
-}
-
-func DeleteNodesBySource(source string) {
-	if err := RemoveSubscriptionSource(source, true); err != nil {
-		log.Printf("[Nodes] 删除订阅来源 %s 失败: %v", source, err)
-	}
 }
 
 func ImportManualNodes(newNodes []Node, replace bool) error {
@@ -391,9 +427,8 @@ func ImportManualNodes(newNodes []Node, replace bool) error {
 		return err
 	}
 	finishRemovedNodesUnsafe(removed)
-	callback := DeleteNodeCallback
 	mu.Unlock()
-	notifyRemovedNodes(removed, callback)
+	notifyRemovedNodes(removed)
 	return nil
 }
 
@@ -532,8 +567,7 @@ func DedupNodes() int {
 		return 0
 	}
 	saveHealthUnsafe()
-	callback := DeleteNodeCallback
 	mu.Unlock()
-	notifyRemovedNodes(removedURIs, callback)
+	notifyRemovedNodes(removedURIs)
 	return len(removedURIs)
 }

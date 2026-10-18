@@ -277,8 +277,7 @@ func makeTrackedDialer(p constant.Proxy, info *proxyInfo, debugMode bool) func(c
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
-			return nil, fmt.Errorf("error: %w", err)
-
+			return nil, fmt.Errorf("split host port: %w", err)
 		}
 
 		portInt, _ := strconv.Atoi(port)
@@ -310,14 +309,12 @@ func makeTrackedDialer(p constant.Proxy, info *proxyInfo, debugMode bool) func(c
 			}
 			// 若是因为上下文取消导致拨号中止，属于并发竞速中的正常现象，直接退出，不打印误报
 			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-				return nil, fmt.Errorf("error: %w", err)
-
+				return nil, fmt.Errorf("mihomo dial canceled: %w", err)
 			}
 			if debugMode {
 				log.Printf("[Transport] Mihomo 拨号失败 [%s:%d]: %v", host, portInt, err)
 			}
-			return nil, fmt.Errorf("error: %w", err)
-
+			return nil, fmt.Errorf("mihomo dial: %w", err)
 		}
 
 		if info != nil {

@@ -56,8 +56,7 @@ func (b *Buffer) Write(p []byte) (int, error) {
 	if maxMemSize > 0 && int64(len(b.mem)+len(p)) > maxMemSize {
 		tmp, err := os.CreateTemp("", "spool-*")
 		if err != nil {
-			return 0, fmt.Errorf("error: %w", err)
-
+			return 0, fmt.Errorf("create spool temp file: %w", err)
 		}
 		b.file = tmp
 		b.filePath = tmp.Name()
@@ -65,8 +64,7 @@ func (b *Buffer) Write(p []byte) (int, error) {
 
 		if len(b.mem) > 0 {
 			if _, err := b.file.Write(b.mem); err != nil {
-				return 0, fmt.Errorf("error: %w", err)
-
+				return 0, fmt.Errorf("flush memory to spool file: %w", err)
 			}
 		}
 		n, err := b.file.Write(p)
@@ -97,8 +95,7 @@ func (b *Buffer) Len() int64 {
 func (b *Buffer) Reader() (io.Reader, error) {
 	if b.spilled {
 		if _, err := b.file.Seek(0, 0); err != nil {
-			return nil, fmt.Errorf("error: %w", err)
-
+			return nil, fmt.Errorf("seek spool file: %w", err)
 		}
 		return b.file, nil
 	}
@@ -146,8 +143,7 @@ func EncodeJSON(v any) (*Buffer, error) {
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
 		_ = b.Close()
-		return nil, fmt.Errorf("error: %w", err)
-
+		return nil, fmt.Errorf("encode json to spool: %w", err)
 	}
 	b.trimTrailingNewline()
 	return b, nil

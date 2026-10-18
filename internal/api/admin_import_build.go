@@ -618,11 +618,19 @@ func buildImportedNodeFromProxyMap(proxy map[string]any) (nodes.Node, bool) {
 	if len(proxy) == 0 {
 		return nodes.Node{}, false
 	}
+	nodeType := strings.TrimSpace(valueToString(proxy["type"]))
+	if nodeType == "" {
+		return nodes.Node{}, false
+	}
 	raw := buildClashURI(proxy)
 	if raw == "" {
 		return nodes.Node{}, false
 	}
-	return parseImportedNodeLine(raw)
+	nodeName := extractImportedNodeName(raw, proxy)
+	if nodeName == "" {
+		nodeName = raw[:min(len(raw), 40)]
+	}
+	return nodes.Node{Type: nodeType, Name: nodeName, RawURI: raw}, true
 }
 
 func buildImportedNodeFromMap(obj map[string]any) (nodes.Node, bool) {
@@ -1028,18 +1036,5 @@ func buildClashNode(proxy map[string]any) (nodes.Node, bool) {
 	if !looksLikeClashProxyMap(normalized) {
 		return nodes.Node{}, false
 	}
-
-	rawURI := clashProxyObjectToURI(normalized)
-	if rawURI == "" {
-		return nodes.Node{}, false
-	}
-	return parseImportedNodeLine(rawURI)
-}
-
-func clashProxyObjectToURI(proxy map[string]any) string {
-	body, err := json.Marshal(proxy)
-	if err != nil {
-		return ""
-	}
-	return "clash://" + base64.StdEncoding.EncodeToString(body)
+	return buildImportedNodeFromProxyMap(normalized)
 }

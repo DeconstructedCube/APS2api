@@ -44,12 +44,11 @@ type NodeHealth struct { //nolint:govet
 }
 
 var (
-	mu                 sync.Mutex                                 //nolint:gochecknoglobals
-	nodeList           []Node                                     //nolint:gochecknoglobals
-	healthMap          = make(map[string]*NodeHealth)             //nolint:gochecknoglobals
-	nodeSources        = make(map[string]map[NodeSource]struct{}) //nolint:gochecknoglobals
-	loaded             bool                                       //nolint:gochecknoglobals
-	DeleteNodeCallback func(uri string)                           //nolint:gochecknoglobals
+	mu          sync.Mutex                                 //nolint:gochecknoglobals
+	nodeList    []Node                                     //nolint:gochecknoglobals
+	healthMap   = make(map[string]*NodeHealth)             //nolint:gochecknoglobals
+	nodeSources = make(map[string]map[NodeSource]struct{}) //nolint:gochecknoglobals
+	loaded      bool                                       //nolint:gochecknoglobals
 )
 
 func ensureLoaded() {
@@ -479,11 +478,8 @@ func DeleteNode(uri string) {
 	globalStickyPool.Evict(uri)
 	saveNodesUnsafe()
 	saveHealthUnsafe()
-	cb := DeleteNodeCallback
 	mu.Unlock() // 必须先解锁，避免底层的销毁回调查找节点名称时发生死锁
-	if cb != nil {
-		cb(uri)
-	}
+	notifyRemovedNodes([]string{uri})
 }
 
 func DeleteDisabled() int {
@@ -506,14 +502,8 @@ func DeleteDisabled() int {
 	nodeList = kept
 	saveNodesUnsafe()
 	saveHealthUnsafe()
-	cb := DeleteNodeCallback
 	mu.Unlock()
-
-	if cb != nil {
-		for _, u := range removedURIs {
-			cb(u)
-		}
-	}
+	notifyRemovedNodes(removedURIs)
 	return removed
 }
 
@@ -564,17 +554,24 @@ func BatchDeleteNodes(uris []string) {
 	nodeList = kept
 	saveNodesUnsafe()
 	saveHealthUnsafe()
-	cb := DeleteNodeCallback
 	mu.Unlock() // 防止在批量删除时引发卡死死锁
-
-	if cb != nil {
-		for _, u := range uris {
-			cb(u)
-		}
-	}
+	notifyRemovedNodes(uris)
 }
 
-func SortNodesByLatency() {
+func nodeSortScore(h *NodeHealth) float64 {
+	if h == nil {
+		return math.MaxFloat64
+	}
+	if h.ConsecutiveFailures > 0 {
+		return 1e6 + float64(h.ConsecutiveFailures)*1000
+	}
+	if h.LastTestMs > 0 {
+		return h.LastTestMs
+	}
+	return math.MaxFloat64
+}
+
+func sortNodesByLatency(desc bool) {
 	mu.Lock()
 	ensureLoaded()
 
@@ -587,30 +584,15 @@ func SortNodesByLatency() {
 			return !n1.Disabled
 		}
 
-		h1 := healthMap[n1.RawURI]
-		h2 := healthMap[n2.RawURI]
-
-		val1 := math.MaxFloat64
-		if h1 != nil {
-			if h1.ConsecutiveFailures > 0 {
-				val1 = 1e6 + float64(h1.ConsecutiveFailures)*1000
-			} else if h1.LastTestMs > 0 {
-				val1 = h1.LastTestMs
-			}
-		}
-
-		val2 := math.MaxFloat64
-		if h2 != nil {
-			if h2.ConsecutiveFailures > 0 {
-				val2 = 1e6 + float64(h2.ConsecutiveFailures)*1000
-			} else if h2.LastTestMs > 0 {
-				val2 = h2.LastTestMs
-			}
-		}
+		val1 := nodeSortScore(healthMap[n1.RawURI])
+		val2 := nodeSortScore(healthMap[n2.RawURI])
 
 		// 延迟一致的按名字自然排序
 		if val1 == val2 {
 			return n1.Name < n2.Name
+		}
+		if desc {
+			return val1 > val2
 		}
 		return val1 < val2
 	})
@@ -619,50 +601,12 @@ func SortNodesByLatency() {
 	mu.Unlock()
 }
 
+func SortNodesByLatency() {
+	sortNodesByLatency(false)
+}
+
 func SortNodesByLatencyDesc() {
-	mu.Lock()
-	ensureLoaded()
-
-	sort.Slice(nodeList, func(i, j int) bool {
-		n1 := nodeList[i]
-		n2 := nodeList[j]
-
-		// 禁用的排在最后面
-		if n1.Disabled != n2.Disabled {
-			return !n1.Disabled
-		}
-
-		h1 := healthMap[n1.RawURI]
-		h2 := healthMap[n2.RawURI]
-
-		val1 := math.MaxFloat64
-		if h1 != nil {
-			if h1.ConsecutiveFailures > 0 {
-				val1 = 1e6 + float64(h1.ConsecutiveFailures)*1000
-			} else if h1.LastTestMs > 0 {
-				val1 = h1.LastTestMs
-			}
-		}
-
-		val2 := math.MaxFloat64
-		if h2 != nil {
-			if h2.ConsecutiveFailures > 0 {
-				val2 = 1e6 + float64(h2.ConsecutiveFailures)*1000
-			} else if h2.LastTestMs > 0 {
-				val2 = h2.LastTestMs
-			}
-		}
-
-		// 延迟一致的按名字自然排序
-		if val1 == val2 {
-			return n1.Name < n2.Name
-		}
-		// 这里改为降序，val1 > val2
-		return val1 > val2
-	})
-
-	saveNodesUnsafe()
-	mu.Unlock()
+	sortNodesByLatency(true)
 }
 
 func GetNodeName(uri string) string {

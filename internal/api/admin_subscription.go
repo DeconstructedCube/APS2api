@@ -338,14 +338,14 @@ func (adm *AdminHandler) fetchSubDataWithUA(ctx context.Context, rawURL, ua stri
 	client := netx.NewHTTPClient(subscriptionHTTPTimeout(ctx))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
+		return nil, fmt.Errorf("create subscription request: %w", err)
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
+		return nil, fmt.Errorf("fetch subscription direct: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -363,15 +363,14 @@ func (adm *AdminHandler) fetchSubDataWithUA(ctx context.Context, rawURL, ua stri
 	return data, nil
 }
 
-func (adm *AdminHandler) fetchSubscriptionDataViaProxyWithUA(ctx context.Context, net interface{}, rawURL, proxyURI, ua string) ([]byte, error) {
-	netClient, ok := net.(*transport.NetworkClient)
-	if !ok || netClient == nil {
+func (adm *AdminHandler) fetchSubscriptionDataViaProxyWithUA(ctx context.Context, netClient *transport.NetworkClient, rawURL, proxyURI, ua string) ([]byte, error) {
+	if netClient == nil {
 		return nil, fmt.Errorf("network client unavailable")
 	}
 
 	sess, err := netClient.CreateSessionWithoutEntryProxy(subscriptionTimeoutSeconds(ctx), proxyURI, "admin-fetch-sub")
 	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
+		return nil, fmt.Errorf("create proxy session: %w", err)
 	}
 	defer sess.Close()
 
@@ -381,7 +380,7 @@ func (adm *AdminHandler) fetchSubscriptionDataViaProxyWithUA(ctx context.Context
 	}
 	statusCode, data, err := sess.DoAndRead(ctx, http.MethodGet, rawURL, header, nil)
 	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
+		return nil, fmt.Errorf("fetch subscription via proxy: %w", err)
 	}
 	if statusCode != http.StatusOK {
 		return nil, fmt.Errorf("status code %d", statusCode)

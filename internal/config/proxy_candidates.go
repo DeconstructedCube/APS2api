@@ -2,8 +2,6 @@ package config
 
 import (
 	"database/sql"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -11,6 +9,7 @@ import (
 	"time"
 
 	"AnonymousVertex/internal/db"
+	"AnonymousVertex/internal/strutil"
 )
 
 type ProxyCandidate struct {
@@ -90,7 +89,7 @@ func AddProxyCandidate(rawURI string) (ProxyCandidate, error) {
 	if exists > 0 {
 		return ProxyCandidate{}, fmt.Errorf("该 URI 已在候选列表中")
 	}
-	name := extractProxyCandidateName(rawURI)
+	name := strutil.ExtractProxyURIName(rawURI)
 	if name == "" {
 		name = scheme + "://" + parsed.Host
 	}
@@ -287,7 +286,7 @@ func MigrateLegacyProxy(rawURI string) error {
 		return err
 	}
 	parsed, _ := url.Parse(rawURI)
-	name := extractProxyCandidateName(rawURI)
+	name := strutil.ExtractProxyURIName(rawURI)
 	if name == "" {
 		name = strings.ToLower(parsed.Scheme) + "://" + parsed.Host
 	}
@@ -313,35 +312,6 @@ func ValidateProxyCandidateURI(rawURI string) error {
 		return fmt.Errorf("不支持的代理协议: %s", parsed.Scheme)
 	}
 	return nil
-}
-
-func extractProxyCandidateName(rawURI string) string {
-	if strings.HasPrefix(strings.ToLower(rawURI), "vmess://") {
-		body := rawURI[len("vmess://"):]
-		if index := strings.IndexAny(body, "?#"); index >= 0 {
-			body = body[:index]
-		}
-		body = strings.NewReplacer("-", "+", "_", "/").Replace(body)
-		if remainder := len(body) % 4; remainder != 0 {
-			body += strings.Repeat("=", 4-remainder)
-		}
-		if decoded, err := base64.StdEncoding.DecodeString(body); err == nil {
-			var payload map[string]any
-			if json.Unmarshal(decoded, &payload) == nil {
-				if name, ok := payload["ps"].(string); ok && strings.TrimSpace(name) != "" {
-					return strings.TrimSpace(name)
-				}
-			}
-		}
-	}
-	if index := strings.LastIndex(rawURI, "#"); index >= 0 {
-		name := rawURI[index+1:]
-		if decoded, err := url.QueryUnescape(name); err == nil {
-			return strings.TrimSpace(decoded)
-		}
-		return strings.TrimSpace(name)
-	}
-	return ""
 }
 
 func supportedEntryProxyScheme(scheme string) bool {

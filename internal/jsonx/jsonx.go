@@ -17,8 +17,7 @@ func Marshal(v any) ([]byte, error) {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-
+		return nil, fmt.Errorf("encode json: %w", err)
 	}
 	// json.Encoder.Encode 会在末尾追加一个换行符，去掉以与 json.Marshal 输出一致。
 	b := buf.Bytes()

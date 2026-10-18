@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"AnonymousVertex/internal/config"
-	"AnonymousVertex/internal/netx"
 	"AnonymousVertex/internal/nodes"
 	"AnonymousVertex/internal/recaptcha"
 	"AnonymousVertex/internal/transport"
@@ -458,7 +456,9 @@ func (adm *AdminHandler) fetchSubscriptionText(ctx context.Context, rawURL strin
 		return "", errors.New("subscription url is empty")
 	}
 
-	data, err := fetchSubscriptionDataDirect(ctx, rawURL)
+	directCtx, directCancel := context.WithTimeout(ctx, 30*time.Second)
+	data, err := adm.fetchSubDataWithUA(directCtx, rawURL, subscriptionFetchUserAgent)
+	directCancel()
 	if err == nil {
 		return strings.TrimSpace(string(data)), nil
 	}
@@ -469,7 +469,9 @@ func (adm *AdminHandler) fetchSubscriptionText(ctx context.Context, rawURL strin
 	}
 
 	log.Printf("[Admin] [FetchSub] direct fetch failed, retry via proxy: %v", err)
-	data, proxyErr := fetchSubscriptionDataViaProxy(ctx, adm.vc.Net(), rawURL, proxyURI)
+	proxyCtx, proxyCancel := context.WithTimeout(ctx, 30*time.Second)
+	data, proxyErr := adm.fetchSubscriptionDataViaProxyWithUA(proxyCtx, adm.vc.Net(), rawURL, proxyURI, subscriptionFetchUserAgent)
+	proxyCancel()
 	if proxyErr != nil {
 		return "", fmt.Errorf("direct fetch failed: %v; proxy retry failed: %w", err, proxyErr)
 	}
@@ -483,60 +485,4 @@ func subscriptionFallbackProxy(cfg config.ConfigProvider) string {
 		return ""
 	}
 	return strings.TrimSpace(cfg.ProxyURL())
-}
-
-func fetchSubscriptionDataDirect(ctx context.Context, rawURL string) ([]byte, error) {
-	client := netx.NewHTTPClient(30 * time.Second)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-	}
-	req.Header.Set("User-Agent", subscriptionFetchUserAgent)
-	req.Header.Set("Accept", "*/*")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-	}
-	if resp == nil {
-		return nil, fmt.Errorf("nil response received")
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSubscriptionResponseBytes+1))
-	if len(data) > maxSubscriptionResponseBytes {
-		return nil, fmt.Errorf("订阅响应超过大小限制")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code %d", resp.StatusCode)
-	}
-	return data, nil
-}
-
-func fetchSubscriptionDataViaProxy(ctx context.Context, netClient *transport.NetworkClient, rawURL string, proxyURI string) ([]byte, error) {
-	if netClient == nil {
-		return nil, errors.New("network client unavailable")
-	}
-
-	sess, err := netClient.CreateSession(30, proxyURI, "admin-fetch-sub")
-	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-	}
-	defer sess.Close()
-
-	header := transport.Header{
-		"user-agent": {subscriptionFetchUserAgent},
-		"accept":     {"*/*"},
-	}
-	statusCode, data, err := sess.DoAndRead(ctx, http.MethodGet, rawURL, header, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-	}
-	if statusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code %d", statusCode)
-	}
-	return data, nil
 }

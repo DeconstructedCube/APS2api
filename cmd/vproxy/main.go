@@ -19,7 +19,6 @@ import (
 	"AnonymousVertex/internal/config"
 	"AnonymousVertex/internal/db"
 	"AnonymousVertex/internal/logger"
-	"AnonymousVertex/internal/nodes"
 	"AnonymousVertex/internal/spool"
 	"AnonymousVertex/internal/transport"
 	"AnonymousVertex/internal/vertex"
@@ -78,10 +77,7 @@ func main() {
 	}
 
 	spool.SetMaxSpillBytes(int64(cfg.MaxSpillMB()) << 20)
-
-	nodes.DeleteNodeCallback = transport.RemoveProxy
 	transport.StartProxyGC(5*time.Minute, 30*time.Minute)
-
 	keys := api.NewAPIKeyManager()
 	keys.LoadKeys()
 

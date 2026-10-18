@@ -97,6 +97,5 @@ func (d dynamicConfig) ModelRegistry() []ModelEntry             { return Load().
 func (d dynamicConfig) AliasMap() map[string]string             { return Load().AliasMap() }
 func (d dynamicConfig) ResolveModelName(s string) string        { return Load().ResolveModelName(s) }
 func (d dynamicConfig) LookupModel(s string) (ModelEntry, bool) { return Load().LookupModel(s) }
-func (d dynamicConfig) AutoRefreshLogs() bool                   { return Load().GetAutoRefreshLogs() }
 func (d dynamicConfig) ConfigDir() string                       { return Load().ConfigDir() }
 func (d dynamicConfig) ConfigPath() string                      { return Load().ConfigPath() }

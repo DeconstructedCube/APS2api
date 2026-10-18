@@ -41,8 +41,7 @@ func (e *EntryProxyError) Unwrap() error { return e.Err }
 func (s *Session) Do(ctx context.Context, method, url string, header http.Header, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-
+		return nil, fmt.Errorf("build http request: %w", err)
 	}
 	req = req.WithContext(ctx)
 	if header != nil {
@@ -62,8 +61,7 @@ func (s *Session) DoAndRead(ctx context.Context, method, url string, header http
 		return resp.StatusCode, nil, fmt.Errorf("response body exceeds %d bytes", maxReadResponseBytes)
 	}
 	if readErr != nil {
-		return resp.StatusCode, nil, fmt.Errorf("error: %w", readErr)
-
+		return resp.StatusCode, nil, fmt.Errorf("read response body: %w", readErr)
 	}
 	return resp.StatusCode, data, nil
 }
@@ -243,8 +241,7 @@ func (c *NetworkClient) createSession(timeoutSec int, proxyURI, entryProxyURI, r
 
 	client, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), opts...)
 	if err != nil {
-		return nil, fmt.Errorf("error: %w", err)
-
+		return nil, fmt.Errorf("init tls http client: %w", err)
 	}
 	return &Session{client: client, ProxyURI: proxyURI, EntryProxyURI: entryProxyURI}, nil
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"AnonymousVertex/internal/db"
+	"AnonymousVertex/internal/strutil"
 )
 
 func TestProxyCandidateLifecycleAndActiveRemoval(t *testing.T) {
@@ -56,7 +57,7 @@ func TestProxyCandidateLifecycleAndActiveRemoval(t *testing.T) {
 func TestProxyCandidateReadsLegacyVMessName(t *testing.T) {
 	// {"ps":"legacy-name"}
 	uri := "vmess://eyJwcyI6ImxlZ2FjeS1uYW1lIn0="
-	if got := extractProxyCandidateName(uri); got != "legacy-name" {
+	if got := strutil.ExtractProxyURIName(uri); got != "legacy-name" {
 		t.Fatalf("unexpected VMess name %q", got)
 	}
 }

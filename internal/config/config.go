@@ -155,8 +155,7 @@ func writeJSONFile(path string, v any) error {
 	data, _ := json.MarshalIndent(v, "", "  ")
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("error: %w", err)
-
+		return fmt.Errorf("write temp config %s: %w", tmp, err)
 	}
 	return os.Rename(tmp, path) //nolint:wrapcheck
 }
@@ -173,70 +172,9 @@ func Load() AppConfig {
 		if errUnm := json.Unmarshal(data, &cfg); errUnm != nil { //nolint:govet
 			log.Printf("[Config] 解析 config.json 失败: %v", err)
 		} else {
-			var needsSave bool
-			// 自动补偿 RequestTimeout 默认值
-			if cfg.RequestTimeout <= 0 {
-				cfg.RequestTimeout = 180
-				needsSave = true
-			} else if cfg.RequestTimeout > maxTimeoutSeconds {
-				log.Printf("[Config] 警告: 请求超时配置过高 (%d)，已限制为上限 %d", cfg.RequestTimeout, maxTimeoutSeconds)
-				cfg.RequestTimeout = maxTimeoutSeconds
-				needsSave = true
-			}
-			if cfg.RaceTimeout < 0 {
-				cfg.RaceTimeout = 0
-				needsSave = true
-			} else if cfg.RaceTimeout > maxTimeoutSeconds {
-				log.Printf("[Config] 警告: 竞速超时配置过高 (%d)，已限制为上限 %d", cfg.RaceTimeout, maxTimeoutSeconds)
-				cfg.RaceTimeout = maxTimeoutSeconds
-				needsSave = true
-			}
-			if cfg.StreamIdleTimeoutSeconds <= 0 {
-				cfg.StreamIdleTimeoutSeconds = DefaultStreamIdleTimeoutSeconds
-				needsSave = true
-			}
-			if cfg.EntryProxyProbeIntervalSeconds <= 0 {
-				cfg.EntryProxyProbeIntervalSeconds = DefaultEntryProxyProbeIntervalSeconds
-				needsSave = true
-			} else if cfg.EntryProxyProbeIntervalSeconds < MinEntryProxyProbeIntervalSeconds {
-				cfg.EntryProxyProbeIntervalSeconds = MinEntryProxyProbeIntervalSeconds
-				needsSave = true
-			} else if cfg.EntryProxyProbeIntervalSeconds > MaxEntryProxyProbeSeconds {
-				cfg.EntryProxyProbeIntervalSeconds = MaxEntryProxyProbeSeconds
-				needsSave = true
-			}
-			if cfg.EntryProxyProbeCooldownSeconds < 0 {
-				cfg.EntryProxyProbeCooldownSeconds = 0
-				needsSave = true
-			} else if cfg.EntryProxyProbeCooldownSeconds > MaxEntryProxyProbeSeconds {
-				cfg.EntryProxyProbeCooldownSeconds = MaxEntryProxyProbeSeconds
-				needsSave = true
-			}
-			if cfg.EntryProxyProbeAutoDisableFailures <= 0 {
-				cfg.EntryProxyProbeAutoDisableFailures = DefaultEntryProxyAutoDisableFailures
-				needsSave = true
-			} else if cfg.EntryProxyProbeAutoDisableFailures > MaxEntryProxyAutoDisableFailures {
-				cfg.EntryProxyProbeAutoDisableFailures = MaxEntryProxyAutoDisableFailures
-				needsSave = true
-			}
-			// 拦截在文件读取配置时过高的并发数限制为 20
-			if cfg.ParallelPoolSize > 20 {
-				log.Printf("[Config] 警告: 并发数配置过高 (%d)，已限制为上限 20", cfg.ParallelPoolSize)
-				cfg.ParallelPoolSize = 20
-				needsSave = true
-			}
-			if needsSave {
+			if updates := normalizeLoadedConfig(&cfg); len(updates) > 0 {
 				// 在返回配置前完成回写，避免调用方读到已修正值但文件仍保留非法值。
-				if errSave := writeSettings(map[string]any{
-					"request_timeout":                         cfg.RequestTimeout,
-					"race_timeout":                            cfg.RaceTimeout,
-					"stream_idle_timeout_seconds":             cfg.StreamIdleTimeoutSeconds,
-					"parallel_pool_size":                      cfg.ParallelPoolSize,
-					"entry_proxy_probe_interval_seconds":      cfg.EntryProxyProbeIntervalSeconds,
-					"entry_proxy_probe_cooldown_seconds":      cfg.EntryProxyProbeCooldownSeconds,
-					"entry_proxy_probe_auto_disable_failures": cfg.EntryProxyProbeAutoDisableFailures,
-					"recaptcha_try_entry_or_direct":           cfg.RecaptchaTryEntryOrDirect,
-				}); errSave != nil {
+				if errSave := writeSettings(updates); errSave != nil {
 					log.Printf("[Config] 自动回写规范化配置失败: %v", errSave)
 				}
 			}
@@ -307,7 +245,69 @@ func (c *AppConfig) WriteModels(models []string, aliasMap map[string]string) err
 	return WriteModels(models, aliasMap)
 }
 
-func (c AppConfig) GetAutoRefreshLogs() bool {
-	return true
+func normalizeLoadedConfig(cfg *AppConfig) map[string]any {
+	var needsSave bool
+	if cfg.RequestTimeout <= 0 {
+		cfg.RequestTimeout = 180
+		needsSave = true
+	} else if cfg.RequestTimeout > maxTimeoutSeconds {
+		log.Printf("[Config] 警告: 请求超时配置过高 (%d)，已限制为上限 %d", cfg.RequestTimeout, maxTimeoutSeconds)
+		cfg.RequestTimeout = maxTimeoutSeconds
+		needsSave = true
+	}
+	if cfg.RaceTimeout < 0 {
+		cfg.RaceTimeout = 0
+		needsSave = true
+	} else if cfg.RaceTimeout > maxTimeoutSeconds {
+		log.Printf("[Config] 警告: 竞速超时配置过高 (%d)，已限制为上限 %d", cfg.RaceTimeout, maxTimeoutSeconds)
+		cfg.RaceTimeout = maxTimeoutSeconds
+		needsSave = true
+	}
+	if cfg.StreamIdleTimeoutSeconds <= 0 {
+		cfg.StreamIdleTimeoutSeconds = DefaultStreamIdleTimeoutSeconds
+		needsSave = true
+	}
+	if cfg.EntryProxyProbeIntervalSeconds <= 0 {
+		cfg.EntryProxyProbeIntervalSeconds = DefaultEntryProxyProbeIntervalSeconds
+		needsSave = true
+	} else if cfg.EntryProxyProbeIntervalSeconds < MinEntryProxyProbeIntervalSeconds {
+		cfg.EntryProxyProbeIntervalSeconds = MinEntryProxyProbeIntervalSeconds
+		needsSave = true
+	} else if cfg.EntryProxyProbeIntervalSeconds > MaxEntryProxyProbeSeconds {
+		cfg.EntryProxyProbeIntervalSeconds = MaxEntryProxyProbeSeconds
+		needsSave = true
+	}
+	if cfg.EntryProxyProbeCooldownSeconds < 0 {
+		cfg.EntryProxyProbeCooldownSeconds = 0
+		needsSave = true
+	} else if cfg.EntryProxyProbeCooldownSeconds > MaxEntryProxyProbeSeconds {
+		cfg.EntryProxyProbeCooldownSeconds = MaxEntryProxyProbeSeconds
+		needsSave = true
+	}
+	if cfg.EntryProxyProbeAutoDisableFailures <= 0 {
+		cfg.EntryProxyProbeAutoDisableFailures = DefaultEntryProxyAutoDisableFailures
+		needsSave = true
+	} else if cfg.EntryProxyProbeAutoDisableFailures > MaxEntryProxyAutoDisableFailures {
+		cfg.EntryProxyProbeAutoDisableFailures = MaxEntryProxyAutoDisableFailures
+		needsSave = true
+	}
+	if cfg.ParallelPoolSize > 20 {
+		log.Printf("[Config] 警告: 并发数配置过高 (%d)，已限制为上限 20", cfg.ParallelPoolSize)
+		cfg.ParallelPoolSize = 20
+		needsSave = true
+	}
+	if !needsSave {
+		return nil
+	}
+	return map[string]any{
+		"request_timeout":                         cfg.RequestTimeout,
+		"race_timeout":                            cfg.RaceTimeout,
+		"stream_idle_timeout_seconds":             cfg.StreamIdleTimeoutSeconds,
+		"parallel_pool_size":                      cfg.ParallelPoolSize,
+		"entry_proxy_probe_interval_seconds":      cfg.EntryProxyProbeIntervalSeconds,
+		"entry_proxy_probe_cooldown_seconds":      cfg.EntryProxyProbeCooldownSeconds,
+		"entry_proxy_probe_auto_disable_failures": cfg.EntryProxyProbeAutoDisableFailures,
+		"recaptcha_try_entry_or_direct":           cfg.RecaptchaTryEntryOrDirect,
+	}
 }
 

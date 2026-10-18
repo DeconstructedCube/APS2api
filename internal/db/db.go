@@ -29,7 +29,7 @@ func InitDB(dbPath string) error {
 
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("error: %w", err)
+		return fmt.Errorf("create db directory: %w", err)
 	}
 
 	isNewDB := false
@@ -41,13 +41,13 @@ func InitDB(dbPath string) error {
 	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return fmt.Errorf("error: %w", err)
+		return fmt.Errorf("open sqlite database: %w", err)
 	}
 
 	// Ensure DB is reachable
 	if errPing := db.Ping(); errPing != nil {
 		_ = db.Close()
-		return fmt.Errorf("error: %w", errPing)
+		return fmt.Errorf("ping sqlite database: %w", errPing)
 	}
 
 	GlobalDB = db
@@ -126,7 +126,7 @@ func createTables(db *sql.DB) error {
 	`
 	_, err := db.Exec(schema)
 	if err != nil {
-		return fmt.Errorf("error: %w", err)
+		return fmt.Errorf("initialize sqlite schema: %w", err)
 	}
 
 	if err := ensureNodeHealthColumns(db); err != nil {

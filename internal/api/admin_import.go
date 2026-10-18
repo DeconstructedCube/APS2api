@@ -1,11 +1,9 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"AnonymousVertex/internal/nodes"
@@ -90,35 +88,7 @@ func extractImportedNodeName(raw string, out map[string]any) string {
 	if name := strings.TrimSpace(valueToString(out["name"])); name != "" {
 		return name
 	}
-
-	if strings.HasPrefix(raw, "vmess://") {
-		b64Str := raw[8:]
-		if idx := strings.Index(b64Str, "?"); idx != -1 {
-			b64Str = b64Str[:idx]
-		}
-		if idx := strings.Index(b64Str, "#"); idx != -1 {
-			b64Str = b64Str[:idx]
-		}
-		b64Str = strutil.PadBase64(b64Str)
-		if b, err := base64.StdEncoding.DecodeString(b64Str); err == nil {
-			var d map[string]any
-			if errUnm := json.Unmarshal(b, &d); errUnm == nil {
-				if ps, ok := d["ps"].(string); ok {
-					return strings.TrimSpace(ps)
-				}
-			}
-		}
-	}
-
-	if idx := strings.Index(raw, "#"); idx != -1 {
-		escapedName := raw[idx+1:]
-		if dec, err := url.QueryUnescape(escapedName); err == nil {
-			return strings.TrimSpace(dec)
-		}
-		return strings.TrimSpace(escapedName)
-	}
-
-	return ""
+	return strutil.ExtractProxyURIName(raw)
 }
 
 func parseFlexibleImportedNodeLine(line string) (nodes.Node, bool) {

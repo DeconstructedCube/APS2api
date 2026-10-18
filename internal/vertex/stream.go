@@ -615,8 +615,7 @@ func scanStream(body io.Reader, onObject func(map[string]any) (bool, error)) err
 
 		if readErr != nil {
 			if errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded) {
-				return fmt.Errorf("error: %w", readErr)
-
+				return fmt.Errorf("stream context done: %w", readErr)
 			}
 			if errors.Is(readErr, io.EOF) {
 				// 只有明确 EOF 才表示上游正常关闭；空响应由上层按 got_content 判定。

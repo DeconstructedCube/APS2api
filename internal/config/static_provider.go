@@ -39,7 +39,6 @@ func (s staticConfig) EntryProxyProbeAutoDisableFailures() int {
 func (s staticConfig) RecaptchaTryEntryOrDirect() bool          { return s.c.RecaptchaTryEntryOrDirect }
 func (s staticConfig) ActiveNodeURI() string                    { return s.c.ActiveNodeURI }
 func (s staticConfig) ParallelNodeTopK() int                    { return s.c.ParallelNodeTopK }
-func (s staticConfig) AutoRefreshLogs() bool                    { return s.c.GetAutoRefreshLogs() }
 func (s staticConfig) BaseModels() []string                     { return s.c.BaseModels() }
 func (s staticConfig) ModelRegistry() []ModelEntry              { return s.c.ModelRegistry() }
 func (s staticConfig) AliasMap() map[string]string              { return s.c.AliasMap() }

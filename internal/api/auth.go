@@ -133,8 +133,7 @@ func (m *APIKeyManager) readEntries() ([]apiKeyEntry, error) {
 		if os.IsNotExist(err) {
 			return nil, nil // 文件不存在视为空列表
 		}
-		return nil, fmt.Errorf("error: %w", err)
-
+		return nil, fmt.Errorf("open api keys file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -162,8 +161,7 @@ func (m *APIKeyManager) readEntries() ([]apiKeyEntry, error) {
 func (m *APIKeyManager) writeEntries(entries []apiKeyEntry) error {
 	if dir := filepath.Dir(m.keysFile); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("error: %w", err)
-
+			return fmt.Errorf("create api keys directory: %w", err)
 		}
 	}
 	var b strings.Builder
@@ -183,8 +181,7 @@ func (m *APIKeyManager) writeEntries(entries []apiKeyEntry) error {
 	}
 	tmp := m.keysFile + ".tmp"
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
-		return fmt.Errorf("error: %w", err)
-
+		return fmt.Errorf("write temp api keys file: %w", err)
 	}
 	return os.Rename(tmp, m.keysFile) //nolint:wrapcheck
 }
@@ -209,7 +206,7 @@ func (m *APIKeyManager) Add(name, key, description string) error {
 	}
 	kept = append(kept, apiKeyEntry{Name: name, Key: key, Description: description})
 	if errW := m.writeEntries(kept); errW != nil { //nolint:govet
-		return err
+		return errW
 	}
 	m.LoadKeys()
 	return nil
@@ -232,7 +229,7 @@ func (m *APIKeyManager) Delete(name string) (bool, error) {
 		return false, nil // 没删掉任何条目
 	}
 	if errW := m.writeEntries(kept); errW != nil { //nolint:govet
-		return false, err
+		return false, errW
 	}
 	m.LoadKeys()
 	return true, nil

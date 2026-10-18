@@ -42,3 +42,12 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestExtractProxyURIName(t *testing.T) {
+	if got := ExtractProxyURIName("vmess://eyJwcyI6ImxlZ2FjeS1uYW1lIn0="); got != "legacy-name" {
+		t.Fatalf("unexpected vmess ps name %q", got)
+	}
+	if got := ExtractProxyURIName("socks5://127.0.0.1:1080#%E5%85%A5%E5%8F%A3"); got != "入口" {
+		t.Fatalf("unexpected fragment name %q", got)
+	}
+}
+
