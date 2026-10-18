@@ -147,12 +147,13 @@ func RunRace[T any](
 		mu.Unlock()
 		launched++
 		go func() {
+			nodes.IncInFlight(uri)
+			defer nodes.DecInFlight(uri)
 			defer func() {
 				if r := recover(); r != nil {
 					results <- result{uri: uri, err: NewInternalError(fmt.Sprintf("candidate %s panic: %v", nodes.GetNodeName(uri), r))}
 				}
 			}()
-
 			var timer *time.Timer
 			if timeout > 0 {
 				timer = time.AfterFunc(time.Duration(timeout)*time.Second, func() {

@@ -403,15 +403,6 @@ func TerminateTestProgress() {
 	}
 }
 
-func CheckTestControl() bool {
-	progressMu.Lock()
-	defer progressMu.Unlock()
-	for globalProgress.Running && globalProgress.Paused && !globalProgress.Terminated {
-		testControlCond.Wait()
-	}
-	return !globalProgress.Running || globalProgress.Terminated
-}
-
 // CheckTestControlContext is the cancellation-aware variant used by bounded
 // batch workers. It deliberately avoids waiting on the legacy condition
 // variable while paused, so a parent timeout can always release the worker.
@@ -952,40 +943,22 @@ func IncInFlight(uri string) {
 	mu.Lock()
 	defer mu.Unlock()
 	ensureLoaded()
-	if h := healthMap[uri]; h != nil {
-		h.InFlight++
+	h := healthMap[uri]
+	if h == nil {
+		if !nodeExistsUnsafe(uri) {
+			return
+		}
+		h = &NodeHealth{} //nolint:exhaustruct
+		healthMap[uri] = h
 	}
+	h.InFlight++
 }
 
 func DecInFlight(uri string) {
 	mu.Lock()
 	defer mu.Unlock()
 	ensureLoaded()
-	if h := healthMap[uri]; h != nil {
-		if h.InFlight > 0 {
-			h.InFlight--
-		}
+	if h := healthMap[uri]; h != nil && h.InFlight > 0 {
+		h.InFlight--
 	}
-}
-
-func GetAverageLatency() float64 {
-	mu.Lock()
-	defer mu.Unlock()
-	ensureLoaded()
-	var sum float64
-	var count int
-	for _, n := range nodeList {
-		if n.Disabled {
-			continue
-		}
-		h := healthMap[n.RawURI]
-		if h != nil && h.LastTestMs > 0 && h.CooldownUntil <= time.Now().Unix() {
-			sum += h.LastTestMs
-			count++
-		}
-	}
-	if count == 0 {
-		return 500.0
-	}
-	return sum / float64(count)
 }
